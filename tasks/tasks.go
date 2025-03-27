@@ -69,7 +69,8 @@ func Run(m *ssh.Manager, tasks []config.Task, debug bool) error {
 
 	close(errChan)
 	for err := range errChan {
-		return err // Return first error for simplicity; could collect all
+		// Return first error for simplicity; could collect all
+		return err
 	}
 	return nil
 }
