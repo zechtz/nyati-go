@@ -96,7 +96,12 @@ func Run(cfg *config.Config, args []string, taskName string, includeLib bool, de
 	if taskName != "" {
 		for _, task := range cfg.Tasks {
 			if task.Name == taskName {
-				tasksToRun = append(tasksToRun, task)
+				// When running a specific task, include its dependencies
+				deps, err := getTaskWithDependencies(cfg.Tasks, taskName)
+				if err != nil {
+					return err
+				}
+				tasksToRun = deps
 				break
 			}
 		}
@@ -104,15 +109,122 @@ func Run(cfg *config.Config, args []string, taskName string, includeLib bool, de
 			return fmt.Errorf("task '%s' not found", taskName)
 		}
 	} else {
+		// Filter out lib tasks if --include-lib is not set
+		var filteredTasks []config.Task
 		for _, task := range cfg.Tasks {
 			if task.Lib && !includeLib {
-				continue // Skip lib tasks unless --include-lib is set
+				continue
 			}
-			tasksToRun = append(tasksToRun, task)
+			filteredTasks = append(filteredTasks, task)
 		}
+
+		// Sort tasks by dependencies
+		sortedTasks, err := topologicalSort(filteredTasks)
+		if err != nil {
+			return err
+		}
+		tasksToRun = sortedTasks
 	}
 
 	return tasks.Run(clients, tasksToRun, debug)
+}
+
+// getTaskWithDependencies returns the task and its dependencies in topological order.
+func getTaskWithDependencies(tasks []config.Task, taskName string) ([]config.Task, error) {
+	// Build a map of task names to tasks for quick lookup
+	taskMap := make(map[string]config.Task)
+	for _, task := range tasks {
+		taskMap[task.Name] = task
+	}
+
+	// Collect the task and its dependencies
+	var selectedTasks []config.Task
+	visited := make(map[string]bool)
+
+	var collectDeps func(name string) error
+	collectDeps = func(name string) error {
+		if visited[name] {
+			return nil
+		}
+		task, exists := taskMap[name]
+		if !exists {
+			return fmt.Errorf("task '%s' not found", name)
+		}
+		// Recursively collect dependencies
+		for _, dep := range task.DependsOn {
+			if err := collectDeps(dep); err != nil {
+				return err
+			}
+		}
+		visited[name] = true
+		selectedTasks = append(selectedTasks, task)
+		return nil
+	}
+
+	if err := collectDeps(taskName); err != nil {
+		return nil, err
+	}
+
+	// Sort the selected tasks by dependencies
+	sortedTasks, err := topologicalSort(selectedTasks)
+	if err != nil {
+		return nil, err
+	}
+
+	return sortedTasks, nil
+}
+
+// topologicalSort sorts tasks based on their dependencies.
+func topologicalSort(tasks []config.Task) ([]config.Task, error) {
+	// Build a graph and in-degree map
+	graph := make(map[string][]string)
+	inDegree := make(map[string]int)
+	taskMap := make(map[string]config.Task)
+
+	for _, task := range tasks {
+		taskMap[task.Name] = task
+		if _, exists := inDegree[task.Name]; !exists {
+			inDegree[task.Name] = 0
+		}
+		for _, dep := range task.DependsOn {
+			graph[dep] = append(graph[dep], task.Name)
+			inDegree[task.Name]++
+		}
+	}
+
+	// Initialize queue with tasks that have no dependencies
+	var queue []string
+	for name, degree := range inDegree {
+		if degree == 0 {
+			queue = append(queue, name)
+		}
+	}
+
+	// Perform topological sort
+	var sortedTasks []config.Task
+	for len(queue) > 0 {
+		// Dequeue a task
+		taskName := queue[0]
+		queue = queue[1:]
+
+		// Add the task to the result
+		sortedTasks = append(sortedTasks, taskMap[taskName])
+
+		// Process dependencies
+		for _, dep := range graph[taskName] {
+			inDegree[dep]--
+			if inDegree[dep] == 0 {
+				queue = append(queue, dep)
+			}
+		}
+	}
+
+	// Check for cycles (shouldn't happen due to earlier validation, but just in case)
+	if len(sortedTasks) != len(tasks) {
+		return nil, fmt.Errorf("unexpected cycle in task dependencies")
+	}
+
+	return sortedTasks, nil
 }
 
 // hasDeployFlag checks if deploy is present in args.

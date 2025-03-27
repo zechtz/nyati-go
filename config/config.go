@@ -29,15 +29,16 @@ type Host struct {
 }
 
 type Task struct {
-	Name    string `mapstructure:"name"`
-	Cmd     string `mapstructure:"cmd"`
-	Dir     string `mapstructure:"dir,omitempty"`
-	Expect  int    `mapstructure:"expect"`
-	Message string `mapstructure:"message,omitempty"`
-	Retry   bool   `mapstructure:"retry,omitempty"`
-	AskPass bool   `mapstructure:"askpass,omitempty"`
-	Lib     bool   `mapstructure:"lib,omitempty"`
-	Output  bool   `mapstructure:"output,omitempty"`
+	Name      string   `mapstructure:"name"`
+	Cmd       string   `mapstructure:"cmd"`
+	Dir       string   `mapstructure:"dir,omitempty"`
+	Expect    int      `mapstructure:"expect"`
+	Message   string   `mapstructure:"message,omitempty"`
+	Retry     bool     `mapstructure:"retry,omitempty"`
+	AskPass   bool     `mapstructure:"askpass,omitempty"`
+	Lib       bool     `mapstructure:"lib,omitempty"`
+	Output    bool     `mapstructure:"output,omitempty"`
+	DependsOn []string `mapstructure:"depends_on,omitempty"`
 }
 
 // Load reads and validates the config file.
@@ -69,6 +70,7 @@ func Load(file, appVersion string) (*Config, error) {
 	}
 
 	// Validate tasks
+	taskNames := make(map[string]bool)
 	for i, task := range cfg.Tasks {
 		if task.Name == "" {
 			return nil, fmt.Errorf("task at index %d: name is required", i)
@@ -76,6 +78,24 @@ func Load(file, appVersion string) (*Config, error) {
 		if task.Cmd == "" {
 			return nil, fmt.Errorf("task '%s': cmd is required", task.Name)
 		}
+		if taskNames[task.Name] {
+			return nil, fmt.Errorf("duplicate task name '%s' at index %d", task.Name, i)
+		}
+		taskNames[task.Name] = true
+	}
+
+	// Validate depends_on
+	for i, task := range cfg.Tasks {
+		for _, dep := range task.DependsOn {
+			if !taskNames[dep] {
+				return nil, fmt.Errorf("task '%s' at index %d: depends_on task '%s' does not exist", task.Name, i, dep)
+			}
+		}
+	}
+
+	// Check for circular dependencies
+	if err := checkCircularDependencies(cfg.Tasks); err != nil {
+		return nil, err
 	}
 
 	// Set runtime values
@@ -89,6 +109,54 @@ func Load(file, appVersion string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+// checkCircularDependencies detects circular dependencies using a DFS approach.
+func checkCircularDependencies(tasks []Task) error {
+	// Build a graph of task dependencies
+	graph := make(map[string][]string)
+	for _, task := range tasks {
+		graph[task.Name] = task.DependsOn
+	}
+
+	// Track visited nodes and nodes in the current recursion stack
+	visited := make(map[string]bool)
+	recStack := make(map[string]bool)
+	var path []string
+
+	var dfs func(taskName string) error
+	dfs = func(taskName string) error {
+		visited[taskName] = true
+		recStack[taskName] = true
+		path = append(path, taskName)
+
+		for _, dep := range graph[taskName] {
+			if !visited[dep] {
+				if err := dfs(dep); err != nil {
+					return err
+				}
+			} else if recStack[dep] {
+				// Circular dependency found
+				cycle := append([]string{dep}, path...)
+				return fmt.Errorf("circular dependency detected: %s", strings.Join(cycle, " -> "))
+			}
+		}
+
+		recStack[taskName] = false
+		path = path[:len(path)-1]
+		return nil
+	}
+
+	// Run DFS for each task
+	for _, task := range tasks {
+		if !visited[task.Name] {
+			if err := dfs(task.Name); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 // parseLiteral replaces ${param} placeholders with config values.
