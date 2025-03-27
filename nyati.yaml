@@ -1,23 +1,10 @@
-# npm i -g nyatictl
-# nyatictl --conf nyati.yaml --exec
-#
-#  - name: yarn_install
-#    cmd: yarn install
-#    dir: /var/www/html/${appname}/releases/${release_version}
-#    expect: 0
-#
-version: 0.1.2
-appname: client
-dir: "/var/www/html/"
-params:
+version: "0.1.2"
+appname: "myapp"
 hosts:
-  live:
-    host: 102.214.45.29
-    username: "tamisemi_app"
-    port: 22
-    askpass: 0
-    privateKey: ""
-    password: "tamisemi@2025"
+  server1:
+    host: "example.com"
+    username: "user"
+    password: "secret"
 tasks:
   - name: clean
     message: older deployments cleaned
@@ -32,31 +19,35 @@ tasks:
   - name: git_clone
     cmd: git clone -b develop git@github.com:JAM-Solutions/zan-mutm-client.git /var/www/html/${appname}/releases/${release_version}
     expect: 0
+    depends_on: ["new_release"]
   - name: yarn_install
     cmd: yarn install --silent --non-interactive
     dir: /var/www/html/${appname}/releases/${release_version}
     expect: 0
+    depends_on: ["git_clone"]
   - name: setup .env
     cmd: ln -sfn /var/www/html/${appname}/shared/.env /var/www/html/${appname}/releases/${release_version}/.env
     expect: 0
+    depends_on: ["git_clone"]
   - name: yarn_build
     cmd: yarn run build
     dir: /var/www/html/${appname}/releases/${release_version}
     expect: 0
+    depends_on: ["yarn_install", "setup .env"]
   - name: change group permission
     cmd: sudo chgrp -R www-data /var/www/html/${appname}/releases/${release_version}/dist
     expect: 0
     askpass: 1
+    depends_on: ["yarn_build"]
   - name: change mode permission
     cmd: sudo chmod -R ug+rwx /var/www/html/${appname}/releases/${release_version}/dist
     expect: 0
     askpass: 1
+    depends_on: ["change group permission"]
   - name: publish
     cmd: ln -sfn /var/www/html/${appname}/releases/${release_version} /var/www/html/${appname}/current
     expect: 0
     message: Deployment completed ${release_version}
-  - name: check_disk
-    cmd: df -h /
-    expect: 0
-    output: 1
-    message: Disk usage checked
+    depends_on: ["change mode permission"]
+params:
+  env: "prod"

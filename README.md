@@ -143,28 +143,28 @@ tasks:
 
 # Configuration Fields
 
+### Configuration Fields
+
 - **version**: The config version (must be compatible with the Nyatictl version, e.g., `0.1.2`).
 - **appname**: The name of your application (used in variable substitution).
 - **hosts**: A map of host names to host configurations.
-
-  - **host**: The hostname or IP address of the server.
-  - **username**: The SSH username.
-  - **password**: The SSH password (optional if using `private_key`).
-  - **private_key**: Path to the SSH private key file (optional if using `password`).
-  - **envfile**: Path to an environment file to load variables (optional).
-
+  - `host`: The hostname or IP address of the server.
+  - `username`: The SSH username.
+  - `password`: The SSH password (optional if using `private_key`).
+  - `private_key`: Path to the SSH private key file (optional if using `password`).
+  - `envfile`: Path to an environment file to load variables (optional).
 - **params**: A map of custom parameters for variable substitution (e.g., `${env}`).
-
 - **tasks**: A list of tasks to execute.
-  - **name**: The task name (**required**).
-  - **cmd**: The shell command to run (**required**).
-  - **dir**: Directory to change to before running the command (optional).
-  - **expect**: Expected exit code (default: `0`).
-  - **message**: Message to display on success (optional).
-  - **retry**: Prompt to retry if the task fails (default: `false`).
-  - **askpass**: Enable PTY for sudo commands requiring a password (default: `false`).
-  - **lib**: Mark the task as a library task, skipped unless `--task` or `--include-lib` is used (default: `false`).
-  - **output**: Display the command’s output on success (default: `false`).
+  - `name`: The task name (required).
+  - `cmd`: The shell command to run (required).
+  - `dir`: Directory to change to before running the command (optional).
+  - `expect`: Expected exit code (default: 0).
+  - `message`: Message to display on success (optional).
+  - `retry`: Prompt to retry if the task fails (default: `false`).
+  - `askpass`: Enable PTY for `sudo` commands requiring a password (default: `false`).
+  - `lib`: Mark the task as a library task, skipped unless `--task` or `--include-lib` is used (default: `false`).
+  - `output`: Display the command’s output on success (default: `false`).
+  - `depends_on`: List of task names that must be executed before this task (optional). Tasks are executed in topological order based on dependencies.
 
 # Variable Substitution
 
