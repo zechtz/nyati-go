@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/zechtz/nyatictl/config"
+	"github.com/zechtz/nyatictl/logger"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -65,7 +66,9 @@ func (m *Manager) Open() error {
 			return fmt.Errorf("failed to connect to %s: %v", name, err)
 		}
 		m.Clients = append(m.Clients, client)
-		fmt.Printf("📡 Connected: %s (%s@%s)\n", name, host.Username, host.Host)
+		msg := fmt.Sprintf("📡 Connected: %s (%s@%s)", name, host.Username, host.Host)
+		logger.Log(msg)
+		fmt.Println(msg)
 	}
 	return nil
 }
@@ -154,7 +157,9 @@ func (c *Client) Exec(task config.Task, debug bool) (int, string, error) {
 	}
 
 	if debug {
-		fmt.Printf("🎲 %s@%s: %s\n", c.Name, c.Server.Host, cmd)
+		msg := fmt.Sprintf("🎲 %s@%s: %s", c.Name, c.Server.Host, cmd)
+		logger.Log(msg)
+		fmt.Println(msg)
 	}
 
 	err = session.Run(cmd)
