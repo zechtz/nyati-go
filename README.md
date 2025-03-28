@@ -108,6 +108,55 @@ Displays usage information and available flags.
 | `--debug`       | `-d`      | Enable debug output (shows commands and output)  | `false`                     |
 | `--help`        | `-h`      | Show help                                        | N/A                         |
 
+## Web UI Mode
+
+In addition to the CLI, Nyatictl also includes a built-in **web UI** for interactive deployments and task execution. The UI is fully embedded into the binary — no Node.js or frontend server required.
+
+### Launch the Web UI
+
+To start the web interface, run:
+
+```bash
+nyatictl --web
+```
+
+By default, this will start the server on port 8080 and serve the UI at:
+
+```bash
+http://localhost:8080
+```
+
+The React frontend is embedded at compile time using Go’s embed package — no external files or dependencies are required to serve the UI.
+
+### Example (Custom Config Path & Port)
+
+```bash
+nyatictl --web --port 3000 --configs-path ./data/configs.json --log-path ./logs/ui.log
+```
+
+### UI Features
+
+📂 View, create, and edit configuration entries
+
+🚀 Trigger deployments to individual or all hosts
+
+✅ Run specific tasks from the config file
+
+🔁 Real-time WebSocket log streaming per session
+
+🧩 Persistent logs are saved to file (--log-path) and streamed to the UI
+
+### Where Are UI Configs Stored?
+
+The web UI uses a `configs.json` file to manage saved deployment configurations. You can customize its location using:
+
+```bash
+
+--configs-path ./data/configs.json
+```
+
+If the file does not exist, Nyatictl will create it with an empty array:
+
 ### Configuration
 
 Nyatictl uses a YAML file (nyati.yaml or nyati.yml) to define hosts, tasks, and parameters. Below is an example configuration:
