@@ -4,6 +4,8 @@ go 1.23.0
 
 require (
 	github.com/briandowns/spinner v1.23.2
+	github.com/gorilla/mux v1.8.1
+	github.com/gorilla/websocket v1.5.3
 	github.com/manifoldco/promptui v0.9.0
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.20.1
