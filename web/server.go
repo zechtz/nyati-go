@@ -63,6 +63,7 @@ func (s *Server) Start(port string) error {
 	// API endpoints
 	r.HandleFunc("/api/configs", s.handleGetConfigs).Methods("GET")
 	r.HandleFunc("/api/configs", s.handleSaveConfigs).Methods("POST")
+	r.HandleFunc("/api/config-details", s.handleConfigDetails).Methods("GET") // New endpoint
 	r.HandleFunc("/api/deploy", s.handleDeploy).Methods("POST")
 	r.HandleFunc("/api/task", s.handleExecuteTask).Methods("POST")
 
@@ -116,6 +117,47 @@ func (s *Server) handleSaveConfigs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// handleConfigDetails returns the tasks and hosts for a given config file.
+func (s *Server) handleConfigDetails(w http.ResponseWriter, r *http.Request) {
+	configPath := r.URL.Query().Get("path")
+	if configPath == "" {
+		http.Error(w, "Missing 'path' query parameter", http.StatusBadRequest)
+		return
+	}
+
+	// Load the config file
+	cfg, err := config.Load(configPath, "0.1.2")
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to load config: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Extract tasks
+	tasks := make([]string, 0, len(cfg.Tasks))
+	for _, task := range cfg.Tasks {
+		tasks = append(tasks, task.Name)
+	}
+
+	// Extract hosts
+	hosts := make([]string, 0, len(cfg.Hosts)+1)
+	hosts = append(hosts, "all") // Add "all" as an option
+	for hostName := range cfg.Hosts {
+		hosts = append(hosts, hostName)
+	}
+
+	// Return the response
+	response := struct {
+		Tasks []string `json:"tasks"`
+		Hosts []string `json:"hosts"`
+	}{
+		Tasks: tasks,
+		Hosts: hosts,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 // handleDeploy executes a deployment for the specified config.
