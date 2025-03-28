@@ -8,6 +8,7 @@ import (
 	"github.com/briandowns/spinner"
 	"github.com/manifoldco/promptui"
 	"github.com/zechtz/nyatictl/config"
+	"github.com/zechtz/nyatictl/logger"
 	"github.com/zechtz/nyatictl/ssh"
 )
 
@@ -25,17 +26,23 @@ func Run(m *ssh.Manager, tasks []config.Task, debug bool) error {
 			go func(c *ssh.Client, t config.Task) {
 				defer wg.Done()
 				s.Start()
+				logger.Log(s.Prefix)
 				code, output, err := c.Exec(t, debug)
 				if err != nil {
-					errChan <- fmt.Errorf("%s@%s: %v", c.Name, c.Server.Host, err)
-					s.FinalMSG = fmt.Sprintf("❌ %s@%s: Failed\n", t.Name, c.Name)
+					errMsg := fmt.Sprintf("❌ %s@%s: Failed", t.Name, c.Name)
+					s.FinalMSG = errMsg + "\n"
+					logger.Log(errMsg)
 					s.Stop()
+					errChan <- fmt.Errorf("%s@%s: %v", c.Name, c.Server.Host, err)
 					return
 				}
 				if code != t.Expect {
-					s.FinalMSG = fmt.Sprintf("❌ %s@%s: Failed (code %d)\n", t.Name, c.Name, code)
+					errMsg := fmt.Sprintf("❌ %s@%s: Failed (code %d)", t.Name, c.Name, code)
+					s.FinalMSG = errMsg + "\n"
+					logger.Log(errMsg)
 					s.Stop()
 					if debug || t.Output || t.Retry {
+						logger.Log(output)
 						fmt.Println(output)
 					}
 					if t.Retry {
@@ -47,20 +54,27 @@ func Run(m *ssh.Manager, tasks []config.Task, debug bool) error {
 							// Retry logic: recursive call
 							_, _, err = c.Exec(t, debug)
 							if err == nil && code == t.Expect {
-								s.FinalMSG = fmt.Sprintf("🎉 %s@%s: Succeeded after retry\n", t.Name, c.Name)
+								successMsg := fmt.Sprintf("🎉 %s@%s: Succeeded after retry", t.Name, c.Name)
+								s.FinalMSG = successMsg + "\n"
+								logger.Log(successMsg)
 							}
 						}
 					}
 					errChan <- fmt.Errorf("task %s failed on %s", t.Name, c.Name)
 					return
 				}
-				s.FinalMSG = fmt.Sprintf("🎉 %s@%s: Succeeded\n", t.Name, c.Name)
+				successMsg := fmt.Sprintf("🎉 %s@%s: Succeeded", t.Name, c.Name)
+				s.FinalMSG = successMsg + "\n"
+				logger.Log(successMsg)
 				s.Stop()
 				if debug || t.Output || t.Message != "" {
+					logger.Log(output)
 					fmt.Println(output)
 				}
 				if t.Message != "" {
-					fmt.Printf("📗 %s\n", t.Message)
+					msg := fmt.Sprintf("📗 %s", t.Message)
+					logger.Log(msg)
+					fmt.Printf("%s\n", msg)
 				}
 			}(client, task)
 		}
@@ -69,8 +83,7 @@ func Run(m *ssh.Manager, tasks []config.Task, debug bool) error {
 
 	close(errChan)
 	for err := range errChan {
-		// Return first error for simplicity; could collect all
-		return err
+		return err // Return first error for simplicity; could collect all
 	}
 	return nil
 }
