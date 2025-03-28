@@ -6,3 +6,4 @@ Makefile
 uploads
 web/build
 configs.json
+nyatictl.log
