@@ -3,30 +3,73 @@ name: Build and Release
 on:
   push:
     tags:
-      - "v*"
+      - "v*" # Triggers only on tag pushes like v1.0.0
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
+      # --------------------------------------------------------
+      # ✅ Step 1: Checkout source code
+      # --------------------------------------------------------
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # --------------------------------------------------------
+      # ✅ Step 2: Set up Go environment
+      # --------------------------------------------------------
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: "1.21"
 
-      - name: Build for Linux
-        run: GOOS=linux GOARCH=amd64 go build -o nyatictl-linux-amd64
+      # --------------------------------------------------------
+      # ✅ Step 3: Set up Node.js (for React build)
+      # --------------------------------------------------------
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "20"
 
-      - name: Build for macOS
-        run: GOOS=darwin GOARCH=arm64 go build -o nyatictl-darwin-arm64
+      # --------------------------------------------------------
+      # ✅ Step 4: Install frontend dependencies and build UI
+      # --------------------------------------------------------
+      - name: Install frontend dependencies
+        working-directory: ./web
+        run: yarn install
 
-      - name: Build for Windows
-        run: GOOS=windows GOARCH=amd64 go build -o nyatictl-windows-amd64.exe
+      - name: Build React UI
+        working-directory: ./web
+        run: yarn build
 
-      - name: Create Release
+      # --------------------------------------------------------
+      # ✅ Step 5: Build cross-platform Go binaries
+      # UI is now embedded via go:embed from ./web/build
+      # --------------------------------------------------------
+
+      - name: Build Linux AMD64 binary
+        run: |
+          GOOS=linux GOARCH=amd64 go build \
+            -ldflags="-s -w -X main.version=${{ github.ref_name }}" \
+            -o nyatictl-linux-amd64
+
+      - name: Build macOS ARM64 binary
+        run: |
+          GOOS=darwin GOARCH=arm64 go build \
+            -ldflags="-s -w -X main.version=${{ github.ref_name }}" \
+            -o nyatictl-darwin-arm64
+
+      - name: Build Windows AMD64 binary
+        run: |
+          GOOS=windows GOARCH=amd64 go build \
+            -ldflags="-s -w -X main.version=${{ github.ref_name }}" \
+            -o nyatictl-windows-amd64.exe
+
+      # --------------------------------------------------------
+      # ✅ Step 6: Create GitHub Release from the tag
+      # --------------------------------------------------------
+      - name: Create GitHub Release
         id: create_release
         uses: actions/create-release@v1
         env:
@@ -37,6 +80,9 @@ jobs:
           draft: false
           prerelease: false
 
+      # --------------------------------------------------------
+      # ✅ Step 7: Upload compiled binaries as release assets
+      # --------------------------------------------------------
       - name: Upload Linux Binary
         uses: actions/upload-release-asset@v1
         env:

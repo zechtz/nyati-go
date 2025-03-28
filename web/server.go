@@ -1,8 +1,10 @@
 package web
 
 import (
+	"embed"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"sync"
@@ -14,8 +16,15 @@ import (
 	"github.com/zechtz/nyatictl/logger"
 )
 
+//go:embed build/*
+var embeddedUI embed.FS
+
 // Server represents the backend web server for the UI.
-// It manages configuration state, WebSocket log streaming, and deployment endpoints.
+//
+// It handles:
+//   - WebSocket log streaming (per session)
+//   - REST API endpoints for config management and task execution
+//   - Serving the embedded React frontend
 type Server struct {
 	configs     []ConfigEntry          // In-memory list of available config entries
 	configsLock sync.Mutex             // Mutex to protect access to configs
@@ -26,9 +35,11 @@ type Server struct {
 
 // NewServer creates and initializes a new Server instance.
 //
+// It loads any saved configs (from JSON) and sets up the WebSocket upgrader.
+//
 // Returns:
-//   - *Server: pointer to a ready-to-start server
-//   - error: if loading configs fails
+//   - *Server: a fully initialized web server instance
+//   - error: if config loading fails
 func NewServer() (*Server, error) {
 	configs, err := LoadConfigs()
 	if err != nil {
@@ -40,7 +51,7 @@ func NewServer() (*Server, error) {
 		logChannels: make(map[string]chan string),
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
-				return true // Allow all origins for development; lock down in prod
+				return true // Allow all origins for dev; restrict in production!
 			},
 		},
 	}, nil
@@ -48,13 +59,18 @@ func NewServer() (*Server, error) {
 
 // Start launches the HTTP server on the specified port and attaches all routes.
 //
+// This includes:
+//   - WebSocket for real-time log streaming
+//   - REST endpoints for config/task management
+//   - Serving the embedded frontend (React UI build)
+//
 // Parameters:
-//   - port: port to listen on (e.g., "8080")
+//   - port: HTTP port (e.g., "8080")
 //
 // Returns:
-//   - error: any issue from ListenAndServe
+//   - error: from ListenAndServe if the server fails to start
 func (s *Server) Start(port string) error {
-	// Background goroutine to multiplex global log output to WebSocket clients
+	// Background goroutine to dispatch log messages to each session's WebSocket
 	go func() {
 		for msg := range logger.LogChan {
 			s.logLock.Lock()
@@ -62,7 +78,7 @@ func (s *Server) Start(port string) error {
 				select {
 				case ch <- msg:
 				default:
-					// Drop log message if client’s buffer is full
+					// Drop log message if client's channel is full
 				}
 			}
 			s.logLock.Unlock()
@@ -71,7 +87,8 @@ func (s *Server) Start(port string) error {
 
 	r := mux.NewRouter()
 
-	// REST API routes
+	// --- API ROUTES ---
+
 	r.HandleFunc("/api/configs", s.handleGetConfigs).Methods("GET")
 	r.HandleFunc("/api/configs", s.handleSaveConfigs).Methods("POST")
 	r.HandleFunc("/api/config-details", s.handleConfigDetails).Methods("GET")
@@ -81,8 +98,14 @@ func (s *Server) Start(port string) error {
 	// WebSocket endpoint for real-time logs
 	r.HandleFunc("/ws/logs/{sessionID}", s.handleLogsWebSocket)
 
-	// Serve static frontend assets (assumes React build is in ./web/build)
-	r.PathPrefix("/").Handler(http.FileServer(http.Dir("./web/build")))
+	// --- EMBEDDED STATIC UI ---
+
+	// Serve embedded frontend files from /build
+	uiFS, err := fs.Sub(embeddedUI, "build")
+	if err != nil {
+		log.Fatalf("Failed to mount embedded UI filesystem: %v", err)
+	}
+	r.PathPrefix("/").Handler(http.FileServer(http.FS(uiFS)))
 
 	log.Printf("Starting web server on :%s", port)
 	return http.ListenAndServe(":"+port, r)
@@ -150,7 +173,7 @@ func (s *Server) handleConfigDetails(w http.ResponseWriter, r *http.Request) {
 	}
 
 	hosts := make([]string, 0, len(cfg.Hosts)+1)
-	hosts = append(hosts, "all") // Include "all" as a default option
+	hosts = append(hosts, "all") // Add "all" as a deploy option
 	for hostName := range cfg.Hosts {
 		hosts = append(hosts, hostName)
 	}
@@ -164,7 +187,7 @@ func (s *Server) handleConfigDetails(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// handleDeploy initiates a deployment for a given config and host via CLI integration.
+// handleDeploy triggers a deployment using the provided config and host.
 func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ConfigPath string `json:"configPath"`
@@ -176,13 +199,12 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Register a log channel for the session
+	// Create a log channel scoped to this session
 	logChan := make(chan string, 100)
 	s.logLock.Lock()
 	s.logChannels[req.SessionID] = logChan
 	s.logLock.Unlock()
 
-	// Execute deployment in background goroutine
 	go func() {
 		defer func() {
 			s.logLock.Lock()
@@ -206,7 +228,7 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// handleExecuteTask runs a specific task on a specified host using CLI backend.
+// handleExecuteTask runs a single task for a host using CLI execution.
 func (s *Server) handleExecuteTask(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ConfigPath string `json:"configPath"`
@@ -261,7 +283,7 @@ func (s *Server) handleLogsWebSocket(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 
 	var logChan chan string
-	// Wait until the log channel is available
+	// Wait until the log channel becomes available
 	for {
 		s.logLock.Lock()
 		if ch, exists := s.logChannels[sessionID]; exists {
@@ -272,7 +294,7 @@ func (s *Server) handleLogsWebSocket(w http.ResponseWriter, r *http.Request) {
 		s.logLock.Unlock()
 	}
 
-	// Stream log messages to WebSocket client
+	// Stream logs to WebSocket client
 	for logMsg := range logChan {
 		if err := conn.WriteMessage(websocket.TextMessage, []byte(logMsg)); err != nil {
 			log.Printf("WebSocket write failed: %v", err)
