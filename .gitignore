@@ -3,3 +3,4 @@ nyatictl-darwin-arm64
 nyatictl-linux-amd64
 nyatictl-windows-amd64.exe
 Makefile
+uploads

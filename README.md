@@ -44,9 +44,10 @@ sudo mv nyatictl /usr/local/bin/
 
 Prebuilt binaries for common platforms are available in the [Releases](https://github.com/zechtz/nyatictl/releases) section. Download the appropriate binary for your system, make it executable, and move it to your `$PATH`:
 
-````bash
+```bash
 chmod +x nyatictl
 sudo mv nyatictl /usr/local/bin/
+```
 
 ### Usage
 
@@ -58,7 +59,7 @@ Nyatictl uses a YAML configuration file to define hosts and tasks. By default, i
 
 ```bash
 nyatictl deploy all
-````
+```
 
 Runs all tasks (excluding lib tasks) on all hosts defined in the config.
 
