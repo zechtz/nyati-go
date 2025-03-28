@@ -5,3 +5,4 @@ nyatictl-windows-amd64.exe
 Makefile
 uploads
 web/build
+configs.json
