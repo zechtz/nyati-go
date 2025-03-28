@@ -5,37 +5,48 @@ import (
 	"os"
 )
 
+// ConfigFilePath defines the path used to read/write configuration entries.
+// This variable can be overridden at runtime to support custom paths or environments.
+var ConfigFilePath = "configs.json"
+
 // ConfigEntry represents a single configuration object used in the UI layer.
 //
 // Each entry contains:
 //   - Name: Human-readable name of the configuration.
 //   - Description: Optional description of what this config does.
 //   - Path: The local or remote path the config points to.
-//
-// These are typically stored and read from a JSON file (configs.json).
 type ConfigEntry struct {
 	Name        string `json:"name"`        // Display name of the configuration
 	Description string `json:"description"` // Description of the configuration's purpose
 	Path        string `json:"path"`        // File path or resource reference
 }
 
-// LoadConfigs reads the configs.json file and unmarshals its contents
-// into a slice of ConfigEntry structs.
+// EnsureConfigsFile checks if the file defined by ConfigFilePath exists on disk.
+// If the file is missing, it creates it with a default empty JSON array ([]).
 //
-// If the file does not exist, it gracefully returns an empty list without error.
-// If the file exists but contains malformed JSON, an error will be returned.
+// This function is safe to call on every application start. If the file already exists,
+// it is left untouched.
 //
 // Returns:
-//   - []ConfigEntry: List of parsed configurations
-//   - error: Any I/O or JSON parsing error encountered
+//   - error: if the file cannot be created or written
+func EnsureConfigsFile() error {
+	if _, err := os.Stat(ConfigFilePath); os.IsNotExist(err) {
+		emptyData := []byte("[]")
+		return os.WriteFile(ConfigFilePath, emptyData, 0644)
+	}
+	return nil
+}
+
+// LoadConfigs reads the config file from ConfigFilePath and unmarshals its contents
+// into a slice of ConfigEntry structs.
+//
+// Returns an empty slice if the file does not exist, or an error if read/parsing fails.
 func LoadConfigs() ([]ConfigEntry, error) {
-	data, err := os.ReadFile("configs.json")
+	data, err := os.ReadFile(ConfigFilePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// No config file? Return an empty slice instead of erroring.
-			return []ConfigEntry{}, nil
+			return []ConfigEntry{}, nil // Gracefully return empty if file doesn't exist
 		}
-		// File exists but couldn't be read (e.g., permissions issue)
 		return nil, err
 	}
 
@@ -47,22 +58,15 @@ func LoadConfigs() ([]ConfigEntry, error) {
 	return configs, nil
 }
 
-// SaveConfigs marshals the provided list of configuration entries into
-// pretty-printed JSON and writes it to configs.json.
+// SaveConfigs marshals the provided list of configuration entries and
+// writes them to the file defined in ConfigFilePath.
 //
-// This overwrites any existing configs.json file.
-// If the directory is not writable or marshaling fails, it returns an error.
-//
-// Parameters:
-//   - configs: Slice of ConfigEntry structs to persist
-//
-// Returns:
-//   - error: If the file write or JSON marshaling fails
+// Overwrites the file if it already exists.
 func SaveConfigs(configs []ConfigEntry) error {
 	data, err := json.MarshalIndent(configs, "", "  ")
 	if err != nil {
 		return err
 	}
 
-	return os.WriteFile("configs.json", data, 0644)
+	return os.WriteFile(ConfigFilePath, data, 0644)
 }
