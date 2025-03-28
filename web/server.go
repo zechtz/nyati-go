@@ -14,16 +14,21 @@ import (
 	"github.com/zechtz/nyatictl/logger"
 )
 
-// Server manages the web UI backend.
+// Server represents the backend web server for the UI.
+// It manages configuration state, WebSocket log streaming, and deployment endpoints.
 type Server struct {
-	configs     []ConfigEntry
-	configsLock sync.Mutex
-	logChannels map[string]chan string // Map of session ID to log channel
-	logLock     sync.Mutex
-	upgrader    websocket.Upgrader
+	configs     []ConfigEntry          // In-memory list of available config entries
+	configsLock sync.Mutex             // Mutex to protect access to configs
+	logChannels map[string]chan string // Session ID -> log channel mapping for WebSocket streaming
+	logLock     sync.Mutex             // Mutex to protect logChannels map
+	upgrader    websocket.Upgrader     // WebSocket upgrader with origin check disabled
 }
 
-// NewServer initializes a new web server.
+// NewServer creates and initializes a new Server instance.
+//
+// Returns:
+//   - *Server: pointer to a ready-to-start server
+//   - error: if loading configs fails
 func NewServer() (*Server, error) {
 	configs, err := LoadConfigs()
 	if err != nil {
@@ -35,15 +40,21 @@ func NewServer() (*Server, error) {
 		logChannels: make(map[string]chan string),
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
-				return true // Allow all origins (adjust for production)
+				return true // Allow all origins for development; lock down in prod
 			},
 		},
 	}, nil
 }
 
-// Start runs the web server.
+// Start launches the HTTP server on the specified port and attaches all routes.
+//
+// Parameters:
+//   - port: port to listen on (e.g., "8080")
+//
+// Returns:
+//   - error: any issue from ListenAndServe
 func (s *Server) Start(port string) error {
-	// Start a goroutine to redirect global logs to session-specific channels
+	// Background goroutine to multiplex global log output to WebSocket clients
 	go func() {
 		for msg := range logger.LogChan {
 			s.logLock.Lock()
@@ -51,7 +62,7 @@ func (s *Server) Start(port string) error {
 				select {
 				case ch <- msg:
 				default:
-					// Drop message if channel is full
+					// Drop log message if client’s buffer is full
 				}
 			}
 			s.logLock.Unlock()
@@ -60,24 +71,24 @@ func (s *Server) Start(port string) error {
 
 	r := mux.NewRouter()
 
-	// API endpoints
+	// REST API routes
 	r.HandleFunc("/api/configs", s.handleGetConfigs).Methods("GET")
 	r.HandleFunc("/api/configs", s.handleSaveConfigs).Methods("POST")
-	r.HandleFunc("/api/config-details", s.handleConfigDetails).Methods("GET") // New endpoint
+	r.HandleFunc("/api/config-details", s.handleConfigDetails).Methods("GET")
 	r.HandleFunc("/api/deploy", s.handleDeploy).Methods("POST")
 	r.HandleFunc("/api/task", s.handleExecuteTask).Methods("POST")
 
-	// WebSocket endpoint for logs
+	// WebSocket endpoint for real-time logs
 	r.HandleFunc("/ws/logs/{sessionID}", s.handleLogsWebSocket)
 
-	// Serve the React frontend (assumes build files are in ./web/build)
+	// Serve static frontend assets (assumes React build is in ./web/build)
 	r.PathPrefix("/").Handler(http.FileServer(http.Dir("./web/build")))
 
 	log.Printf("Starting web server on :%s", port)
 	return http.ListenAndServe(":"+port, r)
 }
 
-// handleGetConfigs returns the list of configurations.
+// handleGetConfigs returns all saved configuration entries as JSON.
 func (s *Server) handleGetConfigs(w http.ResponseWriter, r *http.Request) {
 	s.configsLock.Lock()
 	defer s.configsLock.Unlock()
@@ -86,7 +97,7 @@ func (s *Server) handleGetConfigs(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(s.configs)
 }
 
-// handleSaveConfigs saves a new or updated configuration.
+// handleSaveConfigs accepts a new or updated config entry and persists it to disk.
 func (s *Server) handleSaveConfigs(w http.ResponseWriter, r *http.Request) {
 	var entry ConfigEntry
 	if err := json.NewDecoder(r.Body).Decode(&entry); err != nil {
@@ -97,7 +108,7 @@ func (s *Server) handleSaveConfigs(w http.ResponseWriter, r *http.Request) {
 	s.configsLock.Lock()
 	defer s.configsLock.Unlock()
 
-	// Check if the config path already exists
+	// Update existing config or append new one
 	updated := false
 	for i, cfg := range s.configs {
 		if cfg.Path == entry.Path {
@@ -110,7 +121,6 @@ func (s *Server) handleSaveConfigs(w http.ResponseWriter, r *http.Request) {
 		s.configs = append(s.configs, entry)
 	}
 
-	// Save to file
 	if err := SaveConfigs(s.configs); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to save configs: %v", err), http.StatusInternalServerError)
 		return
@@ -119,7 +129,7 @@ func (s *Server) handleSaveConfigs(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// handleConfigDetails returns the tasks and hosts for a given config file.
+// handleConfigDetails loads a specified config file and returns its task and host names.
 func (s *Server) handleConfigDetails(w http.ResponseWriter, r *http.Request) {
 	configPath := r.URL.Query().Get("path")
 	if configPath == "" {
@@ -127,44 +137,38 @@ func (s *Server) handleConfigDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Load the config file
 	cfg, err := config.Load(configPath, "0.1.2")
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to load config: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// Extract tasks
+	// Extract task and host names
 	tasks := make([]string, 0, len(cfg.Tasks))
 	for _, task := range cfg.Tasks {
 		tasks = append(tasks, task.Name)
 	}
 
-	// Extract hosts
 	hosts := make([]string, 0, len(cfg.Hosts)+1)
-	hosts = append(hosts, "all") // Add "all" as an option
+	hosts = append(hosts, "all") // Include "all" as a default option
 	for hostName := range cfg.Hosts {
 		hosts = append(hosts, hostName)
 	}
 
-	// Return the response
 	response := struct {
 		Tasks []string `json:"tasks"`
 		Hosts []string `json:"hosts"`
-	}{
-		Tasks: tasks,
-		Hosts: hosts,
-	}
+	}{Tasks: tasks, Hosts: hosts}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
 
-// handleDeploy executes a deployment for the specified config.
+// handleDeploy initiates a deployment for a given config and host via CLI integration.
 func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ConfigPath string `json:"configPath"`
-		Host       string `json:"host"` // e.g., "all" or "server1"
+		Host       string `json:"host"`
 		SessionID  string `json:"sessionID"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -172,12 +176,13 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create a log channel for this session
+	// Register a log channel for the session
 	logChan := make(chan string, 100)
 	s.logLock.Lock()
 	s.logChannels[req.SessionID] = logChan
 	s.logLock.Unlock()
 
+	// Execute deployment in background goroutine
 	go func() {
 		defer func() {
 			s.logLock.Lock()
@@ -186,17 +191,14 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 			s.logLock.Unlock()
 		}()
 
-		// Load the config
 		cfg, err := config.Load(req.ConfigPath, "0.1.2")
 		if err != nil {
 			logger.Log(fmt.Sprintf("Error: %v", err))
 			return
 		}
 
-		// Run the deployment
 		args := []string{"deploy", req.Host}
-		err = cli.Run(cfg, args, "", false, true) // taskName="", includeLib=false, debug=true
-		if err != nil {
+		if err := cli.Run(cfg, args, "", false, true); err != nil {
 			logger.Log(fmt.Sprintf("Error: %v", err))
 		}
 	}()
@@ -204,7 +206,7 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// handleExecuteTask executes a specific task for the specified config.
+// handleExecuteTask runs a specific task on a specified host using CLI backend.
 func (s *Server) handleExecuteTask(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ConfigPath string `json:"configPath"`
@@ -217,7 +219,6 @@ func (s *Server) handleExecuteTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create a log channel for this session
 	logChan := make(chan string, 100)
 	s.logLock.Lock()
 	s.logChannels[req.SessionID] = logChan
@@ -231,17 +232,14 @@ func (s *Server) handleExecuteTask(w http.ResponseWriter, r *http.Request) {
 			s.logLock.Unlock()
 		}()
 
-		// Load the config
 		cfg, err := config.Load(req.ConfigPath, "0.1.2")
 		if err != nil {
 			logger.Log(fmt.Sprintf("Error: %v", err))
 			return
 		}
 
-		// Run the specific task
 		args := []string{"deploy", req.Host}
-		err = cli.Run(cfg, args, req.TaskName, false, true) // includeLib=false, debug=true
-		if err != nil {
+		if err := cli.Run(cfg, args, req.TaskName, false, true); err != nil {
 			logger.Log(fmt.Sprintf("Error: %v", err))
 		}
 	}()
@@ -249,12 +247,12 @@ func (s *Server) handleExecuteTask(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// handleLogsWebSocket streams logs to the client via WebSocket.
+// handleLogsWebSocket upgrades the HTTP connection to a WebSocket and streams logs
+// for the provided session ID in real-time.
 func (s *Server) handleLogsWebSocket(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	sessionID := vars["sessionID"]
 
-	// Upgrade to WebSocket
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WebSocket upgrade failed: %v", err)
@@ -262,8 +260,8 @@ func (s *Server) handleLogsWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	// Wait for the log channel to be created
 	var logChan chan string
+	// Wait until the log channel is available
 	for {
 		s.logLock.Lock()
 		if ch, exists := s.logChannels[sessionID]; exists {
@@ -274,7 +272,7 @@ func (s *Server) handleLogsWebSocket(w http.ResponseWriter, r *http.Request) {
 		s.logLock.Unlock()
 	}
 
-	// Stream logs to the client
+	// Stream log messages to WebSocket client
 	for logMsg := range logChan {
 		if err := conn.WriteMessage(websocket.TextMessage, []byte(logMsg)); err != nil {
 			log.Printf("WebSocket write failed: %v", err)

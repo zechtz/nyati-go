@@ -11,13 +11,23 @@ import (
 	"github.com/zechtz/nyatictl/tasks"
 )
 
-// Execute runs the CLI with the given version.
+// Execute initializes and executes the root Cobra command for nyatictl.
+//
+// It sets up command-line flags, handles configuration loading,
+// determines which tasks to run, and delegates the core logic
+// to the Run() function.
+//
+// Parameters:
+//   - version: A string specifying the version of the application.
+//
+// Returns:
+//   - error: If any error occurs during execution, it will be returned.
 func Execute(version string) error {
-	var cfgFile string
-	var deployHost string
-	var taskName string
-	var includeLib bool
-	var debug bool
+	var cfgFile string    // Path to configuration file
+	var deployHost string // Host to deploy tasks to (e.g., "all", "server1")
+	var taskName string   // Optional task name to execute
+	var includeLib bool   // Whether to include "lib" tasks
+	var debug bool        // Enable debug output
 
 	rootCmd := &cobra.Command{
 		Use:   "nyatictl",
@@ -31,12 +41,12 @@ Usage examples:
   nyatictl [-c nyati.yaml] deploy server1 --task clean  # Run the 'clean' task on server1
   nyatictl [-c nyati.yaml] server1       # Shorthand for deploy server1`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// If --help is requested, show help and exit
+			// Display help if explicitly requested
 			if cmd.Flag("help").Changed {
 				PrintHelp(nil)
 			}
 
-			// Automatically detect nyati.yaml or nyati.yml if -c is not provided
+			// Automatically infer config file if not provided
 			if !cmd.Flag("config").Changed {
 				if _, err := os.Stat("nyati.yaml"); err == nil {
 					cfgFile = "nyati.yaml"
@@ -47,21 +57,23 @@ Usage examples:
 				}
 			}
 
+			// Load the configuration file
 			cfg, err := config.Load(cfgFile, version)
 			if err != nil {
 				return err
 			}
 
-			// Pass deployHost as an argument if set, otherwise use args
+			// Override args if deploy flag is set
 			if deployHost != "" {
 				args = []string{"deploy", deployHost}
 			}
 
+			// Execute main logic
 			return Run(cfg, args, taskName, includeLib, debug)
 		},
 	}
 
-	// Define flags
+	// Define supported flags
 	rootCmd.Flags().StringVarP(&cfgFile, "config", "c", "", "Path to config file (default: nyati.yaml or nyati.yml in current directory)")
 	rootCmd.Flags().StringVar(&deployHost, "deploy", "", "Host to deploy tasks on (e.g., 'all' or 'server1')")
 	rootCmd.Flags().StringVar(&taskName, "task", "", "Specific task to run (e.g., 'clean')")
@@ -69,34 +81,49 @@ Usage examples:
 	rootCmd.Flags().BoolVarP(&debug, "debug", "d", false, "Enable debug output")
 	rootCmd.Flags().BoolP("help", "h", false, "Show help")
 
+	// Start CLI
 	return rootCmd.Execute()
 }
 
-// Run executes the main logic: loads clients, runs tasks, and cleans up.
+// Run handles the core task execution workflow.
+//
+// It creates SSH clients, filters and sorts tasks (with or without dependencies),
+// and executes them on the target hosts.
+//
+// Parameters:
+//   - cfg: The loaded configuration object
+//   - args: CLI arguments determining what to run
+//   - taskName: Optional specific task to run
+//   - includeLib: Whether to include tasks marked as lib
+//   - debug: Enable debug output
+//
+// Returns:
+//   - error: Any encountered error
 func Run(cfg *config.Config, args []string, taskName string, includeLib bool, debug bool) error {
-	// Show help if no arguments are provided and deploy isn't set
+	// Display help if nothing to do
 	if len(args) == 0 && !hasDeployFlag(args) {
 		PrintHelp(cfg)
 		return nil
 	}
 
+	// Initialize SSH clients
 	clients, err := ssh.NewManager(cfg, args, debug)
 	if err != nil {
 		return err
 	}
-
 	defer clients.Close()
 
+	// Establish SSH connections
 	if err := clients.Open(); err != nil {
 		return err
 	}
 
-	// Filter tasks
+	// Determine which tasks to run
 	var tasksToRun []config.Task
 	if taskName != "" {
+		// Run only the specified task and its dependencies
 		for _, task := range cfg.Tasks {
 			if task.Name == taskName {
-				// When running a specific task, include its dependencies
 				deps, err := getTaskWithDependencies(cfg.Tasks, taskName)
 				if err != nil {
 					return err
@@ -109,7 +136,7 @@ func Run(cfg *config.Config, args []string, taskName string, includeLib bool, de
 			return fmt.Errorf("task '%s' not found", taskName)
 		}
 	} else {
-		// Filter out lib tasks if --include-lib is not set
+		// Run all tasks, optionally excluding lib tasks
 		var filteredTasks []config.Task
 		for _, task := range cfg.Tasks {
 			if task.Lib && !includeLib {
@@ -118,7 +145,7 @@ func Run(cfg *config.Config, args []string, taskName string, includeLib bool, de
 			filteredTasks = append(filteredTasks, task)
 		}
 
-		// Sort tasks by dependencies
+		// Sort tasks by dependency order
 		sortedTasks, err := topologicalSort(filteredTasks)
 		if err != nil {
 			return err
@@ -126,31 +153,38 @@ func Run(cfg *config.Config, args []string, taskName string, includeLib bool, de
 		tasksToRun = sortedTasks
 	}
 
+	// Run the tasks over SSH
 	return tasks.Run(clients, tasksToRun, debug)
 }
 
-// getTaskWithDependencies returns the task and its dependencies in topological order.
+// getTaskWithDependencies builds a dependency-aware list of tasks,
+// starting from the named task and including all its prerequisites.
+//
+// Parameters:
+//   - tasks: List of all tasks from config
+//   - taskName: Name of the entry task
+//
+// Returns:
+//   - []config.Task: Ordered list of tasks
+//   - error: If the task or its dependencies are missing
 func getTaskWithDependencies(tasks []config.Task, taskName string) ([]config.Task, error) {
-	// Build a map of task names to tasks for quick lookup
 	taskMap := make(map[string]config.Task)
 	for _, task := range tasks {
 		taskMap[task.Name] = task
 	}
 
-	// Collect the task and its dependencies
 	var selectedTasks []config.Task
 	visited := make(map[string]bool)
 
-	var collectDeps func(name string) error
+	var collectDeps func(string) error
 	collectDeps = func(name string) error {
 		if visited[name] {
 			return nil
 		}
-		task, exists := taskMap[name]
-		if !exists {
+		task, ok := taskMap[name]
+		if !ok {
 			return fmt.Errorf("task '%s' not found", name)
 		}
-		// Recursively collect dependencies
 		for _, dep := range task.DependsOn {
 			if err := collectDeps(dep); err != nil {
 				return err
@@ -165,25 +199,27 @@ func getTaskWithDependencies(tasks []config.Task, taskName string) ([]config.Tas
 		return nil, err
 	}
 
-	// Sort the selected tasks by dependencies
-	sortedTasks, err := topologicalSort(selectedTasks)
-	if err != nil {
-		return nil, err
-	}
-
-	return sortedTasks, nil
+	return topologicalSort(selectedTasks)
 }
 
-// topologicalSort sorts tasks based on their dependencies.
+// topologicalSort returns tasks sorted in dependency-respecting order.
+//
+// It uses Kahn’s algorithm to detect cycles and establish execution order.
+//
+// Parameters:
+//   - tasks: List of tasks to sort
+//
+// Returns:
+//   - []config.Task: Ordered list of tasks
+//   - error: If a cyclic dependency is found
 func topologicalSort(tasks []config.Task) ([]config.Task, error) {
-	// Build a graph and in-degree map
 	graph := make(map[string][]string)
 	inDegree := make(map[string]int)
 	taskMap := make(map[string]config.Task)
 
 	for _, task := range tasks {
 		taskMap[task.Name] = task
-		if _, exists := inDegree[task.Name]; !exists {
+		if _, ok := inDegree[task.Name]; !ok {
 			inDegree[task.Name] = 0
 		}
 		for _, dep := range task.DependsOn {
@@ -192,7 +228,6 @@ func topologicalSort(tasks []config.Task) ([]config.Task, error) {
 		}
 	}
 
-	// Initialize queue with tasks that have no dependencies
 	var queue []string
 	for name, degree := range inDegree {
 		if degree == 0 {
@@ -200,17 +235,12 @@ func topologicalSort(tasks []config.Task) ([]config.Task, error) {
 		}
 	}
 
-	// Perform topological sort
 	var sortedTasks []config.Task
 	for len(queue) > 0 {
-		// Dequeue a task
 		taskName := queue[0]
 		queue = queue[1:]
-
-		// Add the task to the result
 		sortedTasks = append(sortedTasks, taskMap[taskName])
 
-		// Process dependencies
 		for _, dep := range graph[taskName] {
 			inDegree[dep]--
 			if inDegree[dep] == 0 {
@@ -219,7 +249,6 @@ func topologicalSort(tasks []config.Task) ([]config.Task, error) {
 		}
 	}
 
-	// Check for cycles (shouldn't happen due to earlier validation, but just in case)
 	if len(sortedTasks) != len(tasks) {
 		return nil, fmt.Errorf("unexpected cycle in task dependencies")
 	}
@@ -227,12 +256,21 @@ func topologicalSort(tasks []config.Task) ([]config.Task, error) {
 	return sortedTasks, nil
 }
 
-// hasDeployFlag checks if deploy is present in args.
+// hasDeployFlag checks if "deploy" keyword is present in CLI args.
+//
+// Parameters:
+//   - args: List of CLI arguments
+//
+// Returns:
+//   - bool: True if "deploy" is in args
 func hasDeployFlag(args []string) bool {
 	return slices.Contains(args, "deploy")
 }
 
-// PrintHelp displays usage information.
+// PrintHelp prints help message and optionally configuration details.
+//
+// Parameters:
+//   - cfg: Optional loaded config to display host/version info
 func PrintHelp(cfg *config.Config) {
 	fmt.Println("   -^- Nyatictl -^-    ")
 	fmt.Println("Usage:")
