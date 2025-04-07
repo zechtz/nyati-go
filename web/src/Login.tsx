@@ -32,7 +32,6 @@ const Login: React.FC = () => {
   return (
     <div className="min-h-screen flex items-center justify-center bg-hyper-gray">
       <Card className="w-full max-w-md shadow-lg">
-        <div className="bg-primary-50 p-4">Test Background Color</div>
         <CardHeader className="text-center">
           <h1 className="text-3xl font-bold text-hyper-blue">NyatiCtl</h1>
           <CardTitle className="text-2xl mt-2 text-hyper-blue">Login</CardTitle>

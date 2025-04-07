@@ -258,29 +258,29 @@ const App: React.FC = () => {
   }, []);
 
   return (
-    <div className="flex h-screen bg-primary-500">
+    <div className="flex h-screen bg-hyper-gray">
       {/* Sidebar */}
-      <div className="w-64 bg-primary  text-white flex flex-col">
+      <div className="w-64 bg-hyper-blue text-white flex flex-col">
         <div className="p-4">
           <h1 className="text-2xl font-bold">NyatiCtl</h1>
         </div>
         <nav className="flex-1 p-4 space-y-2">
           <Link
             to="/"
-            className="flex items-center p-2 rounded hover:bg-primary-100"
+            className="flex items-center p-2 rounded hover:bg-hyper-blue/80"
           >
             <span className="ml-2">Dashboard</span>
           </Link>
           <Link
             to="/configs"
-            className="flex items-center p-2 rounded bg-primary-500/80"
+            className="flex items-center p-2 rounded bg-hyper-blue/80"
           >
             <span className="ml-2">Manage Configs</span>
           </Link>
           <div className="mt-auto">
             <Link
               to="/settings"
-              className="flex items-center p-2 rounded hover:bg-primary-500/80"
+              className="flex items-center p-2 rounded hover:bg-hyper-blue/80"
             >
               <Settings className="h-5 w-5" />
               <span className="ml-2">Settings</span>
@@ -288,7 +288,7 @@ const App: React.FC = () => {
           </div>
         </nav>
         <Button
-          className="m-4 bg-secondary-500 hover:bg-secondary-300"
+          className="m-4 bg-hyper-cyan hover:bg-hyper-cyan/90"
           onClick={addConfig}
         >
           <Plus className="h-5 w-5 mr-2" />
@@ -299,7 +299,7 @@ const App: React.FC = () => {
       {/* Main Content */}
       <div className="flex-1 flex flex-col">
         {/* Header */}
-        <header className="bg-primary-500 text-white p-4 flex justify-between items-center">
+        <header className="bg-hyper-blue text-white p-4 flex justify-between items-center">
           <h2 className="text-xl font-semibold">Manage Configs</h2>
           <div className="flex items-center space-x-4">
             <div className="relative">
