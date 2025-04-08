@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { v4 as uuidv4 } from "uuid";
 import { toast, ToastContainer } from "react-toastify";
@@ -12,45 +12,45 @@ import {
   TableHeader,
   TableRow,
 } from "./components/ui/table";
-import { Input } from "./components/ui/input";
 import {
   Select,
+  SelectTrigger,
   SelectContent,
   SelectItem,
-  SelectTrigger,
   SelectValue,
 } from "./components/ui/select";
+
+import { Input } from "./components/ui/input";
 import { Button } from "./components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "./components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "./components/ui/avatar";
-import {
-  MoreHorizontal,
-  LogOut,
-  Plus,
-  Search,
-  Settings,
-  User,
-} from "lucide-react";
+import { Badge } from "./components/ui/badge";
+import { Checkbox } from "./components/ui/checkbox";
+import { MoreHorizontal, LogOut, Search, User } from "lucide-react";
+import { useAuth } from "./contexts/AuthContext";
+import Sidebar from "./components/sidebar/Sidebar";
 
-interface ConfigEntry {
+export interface ConfigEntry {
   name: string;
   description: string;
   path: string;
+  status?: "DEPLOYED" | "DRAFT" | "TEMPLATE"; // Add status field
 }
 
-interface ConfigDetails {
+export interface ConfigState {
+  selectedHost: string;
+  selectedTask: string;
   tasks: string[];
   hosts: string[];
 }
 
-interface ConfigState {
-  selectedHost: string;
-  selectedTask: string;
+interface ConfigDetails {
   tasks: string[];
   hosts: string[];
 }
@@ -62,18 +62,30 @@ const App: React.FC = () => {
   const [configStates, setConfigStates] = useState<{
     [key: string]: ConfigState;
   }>({});
-  const [loadingStates, setLoadingStates] = useState<{
-    [key: string]: boolean;
-  }>({});
+
+  const { logout } = useAuth();
   const navigate = useNavigate();
 
   const fetchConfigs = async () => {
     try {
       const response = await axios.get("/api/configs");
+
+      console.log("Fetched Configs", response.data);
+
       const fetchedConfigs = Array.isArray(response.data) ? response.data : [];
-      setConfigs(fetchedConfigs);
+      // Add a default status to each config for demo purposes
+      const configsWithStatus = fetchedConfigs.map(
+        (config: ConfigEntry, index: number) => ({
+          ...config,
+          status: ["DEPLOYED", "DRAFT", "TEMPLATE"][index % 3] as
+            | "DEPLOYED"
+            | "DRAFT"
+            | "TEMPLATE",
+        }),
+      );
+      setConfigs(configsWithStatus);
       const initialStates: { [key: string]: ConfigState } = {};
-      fetchedConfigs.forEach((config: ConfigEntry) => {
+      configsWithStatus.forEach((config: ConfigEntry) => {
         initialStates[config.path] = {
           selectedHost: "all",
           selectedTask: "none",
@@ -89,21 +101,19 @@ const App: React.FC = () => {
     }
   };
 
+  // Fetch tasks and hosts for a config
   const fetchTasksAndHosts = async (configPath: string) => {
-    setLoadingStates((prev) => ({ ...prev, [configPath]: true }));
     try {
       const response = await axios.get(
         `/api/config-details?path=${encodeURIComponent(configPath)}`,
       );
       const { tasks, hosts }: ConfigDetails = response.data;
-      const filteredTasks = tasks.filter((task) => task !== "");
-      const filteredHosts = hosts.filter((host) => host !== "");
       setConfigStates((prev) => ({
         ...prev,
         [configPath]: {
           ...prev[configPath],
-          tasks: filteredTasks,
-          hosts: filteredHosts,
+          tasks,
+          hosts,
         },
       }));
     } catch (error) {
@@ -112,9 +122,6 @@ const App: React.FC = () => {
         ...prevLogs,
         `Error fetching tasks and hosts for ${configPath}: ${error}`,
       ]);
-      toast.error(`Failed to fetch tasks and hosts for ${configPath}.`);
-    } finally {
-      setLoadingStates((prev) => ({ ...prev, [configPath]: false }));
     }
   };
 
@@ -128,20 +135,6 @@ const App: React.FC = () => {
       newConfigs[index] = { ...newConfigs[index], [field]: value };
       return newConfigs;
     });
-  };
-
-  const updateConfigState = (
-    configPath: string,
-    field: keyof ConfigState,
-    value: string,
-  ) => {
-    setConfigStates((prev) => ({
-      ...prev,
-      [configPath]: {
-        ...prev[configPath],
-        [field]: value,
-      },
-    }));
   };
 
   const saveConfig = async (index: number) => {
@@ -167,6 +160,7 @@ const App: React.FC = () => {
         name: "",
         description: "",
         path: newConfigPath,
+        status: "DRAFT", // Default status for new configs
       };
       setConfigs((prev) => {
         const updatedConfigs = [...prev, newConfig];
@@ -207,6 +201,15 @@ const App: React.FC = () => {
         host: configStates[configPath].selectedHost,
         sessionID,
       });
+      // Update status to DEPLOYED after successful deployment
+      setConfigs((prev) =>
+        prev.map((config) =>
+          config.path === configPath
+            ? { ...config, status: "DEPLOYED" }
+            : config,
+        ),
+      );
+      toast.success("Config deployed successfully!");
     } catch (error) {
       console.error("Failed to deploy config:", error);
       setLogs((prevLogs) => [...prevLogs, `Error: ${error}`]);
@@ -240,17 +243,46 @@ const App: React.FC = () => {
         taskName: selectedTask,
         sessionID,
       });
+      toast.success("Task executed successfully!");
     } catch (error) {
       console.error("Failed to execute task:", error);
       setLogs((prevLogs) => [...prevLogs, `Error: ${error}`]);
       toast.error("Failed to execute task.");
     }
   };
+  // Update selected host or task for a config
+  const updateConfigState = (
+    configPath: string,
+    field: "selectedHost" | "selectedTask",
+    value: string,
+  ) => {
+    setConfigStates((prev) => ({
+      ...prev,
+      [configPath]: {
+        ...prev[configPath],
+        [field]: value,
+      },
+    }));
+  };
+
+  const removeConfig = (index: number) => {
+    setConfigs((prev) => {
+      const updatedConfigs = [...prev];
+      updatedConfigs.splice(index, 1);
+      return updatedConfigs;
+    });
+    toast.success("Config removed successfully!");
+  };
 
   const handleLogout = () => {
-    // Placeholder for logout logic (to be implemented after backend auth)
+    logout();
     toast.success("Logged out successfully!");
     navigate("/login");
+  };
+
+  const handleFormSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    addConfig();
   };
 
   useEffect(() => {
@@ -258,113 +290,82 @@ const App: React.FC = () => {
   }, []);
 
   return (
-    <div className="flex h-screen bg-hyper-gray">
-      {/* Sidebar */}
-      <div className="w-64 bg-hyper-blue text-white flex flex-col">
-        <div className="p-4">
-          <h1 className="text-2xl font-bold">NyatiCtl</h1>
-        </div>
-        <nav className="flex-1 p-4 space-y-2">
-          <Link
-            to="/"
-            className="flex items-center p-2 rounded hover:bg-hyper-blue/80"
-          >
-            <span className="ml-2">Dashboard</span>
-          </Link>
-          <Link
-            to="/configs"
-            className="flex items-center p-2 rounded bg-hyper-blue/80"
-          >
-            <span className="ml-2">Manage Configs</span>
-          </Link>
-          <div className="mt-auto">
-            <Link
-              to="/settings"
-              className="flex items-center p-2 rounded hover:bg-hyper-blue/80"
-            >
-              <Settings className="h-5 w-5" />
-              <span className="ml-2">Settings</span>
-            </Link>
+    <div className="flex h-screen bg-gray-100">
+      {/* Header */}
+      <header className="absolute top-0 left-0 right-0 bg-primary-500 text-white p-4 flex justify-between items-center z-10">
+        <h1 className="text-2xl font-bold">NyatiCtl</h1>
+        <div className="flex items-center space-x-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+            <Input className="pl-10 bg-white text-black" placeholder="Search" />
           </div>
-        </nav>
-        <Button
-          className="m-4 bg-hyper-cyan hover:bg-hyper-cyan/90"
-          onClick={addConfig}
-        >
-          <Plus className="h-5 w-5 mr-2" />
-          Add Config
-        </Button>
-      </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <div className="flex items-center space-x-2 cursor-pointer">
+                <Avatar>
+                  <AvatarImage src="https://github.com/shadcn.png" alt="User" />
+                  <AvatarFallback>JD</AvatarFallback>
+                </Avatar>
+                <span>John Doe</span>
+              </div>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem>
+                <User className="mr-2 h-4 w-4" />
+                <span>Profile</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleLogout}>
+                <LogOut className="mr-2 h-4 w-4" />
+                <span>Logout</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </header>
+
+      {/* Sidebar */}
+      <Sidebar />
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col">
-        {/* Header */}
-        <header className="bg-hyper-blue text-white p-4 flex justify-between items-center">
-          <h2 className="text-xl font-semibold">Manage Configs</h2>
-          <div className="flex items-center space-x-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-              <Input
-                className="pl-10 bg-white text-black"
-                placeholder="Search"
-              />
-            </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <div className="flex items-center space-x-2 cursor-pointer">
-                  <Avatar>
-                    <AvatarImage
-                      src="https://github.com/shadcn.png"
-                      alt="User"
-                    />
-                    <AvatarFallback>JD</AvatarFallback>
-                  </Avatar>
-                  <span>John Doe</span>
-                </div>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem>
-                  <User className="mr-2 h-4 w-4" />
-                  <span>Profile</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleLogout}>
-                  <LogOut className="mr-2 h-4 w-4" />
-                  <span>Logout</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </header>
-
-        {/* Main Content */}
+      <div className="flex-1 flex flex-col pt-16">
         <main className="flex-1 p-6 overflow-auto">
           <div className="mb-4">
+            <h2 className="text-2xl font-semibold">Manage Configs</h2>
             <p className="text-gray-600">
               Manage your configurations from the same page.
             </p>
           </div>
           <div className="mb-4">
-            <Input
-              placeholder="Config Path (e.g., nyati.live.yml)"
-              value={newConfigPath}
-              onChange={(e) => setNewConfigPath(e.target.value)}
-              className="max-w-md"
-            />
+            <form onSubmit={handleFormSubmit}>
+              <Input
+                placeholder="Config Path (e.g., nyati.live.yml)"
+                value={newConfigPath}
+                onChange={(e) => setNewConfigPath(e.target.value)}
+                className="max-w-md"
+              />
+            </form>
           </div>
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead>
+                  <Checkbox />
+                </TableHead>
                 <TableHead>Name</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead>Config Path</TableHead>
-                <TableHead>Host</TableHead>
-                <TableHead>Task</TableHead>
+                <TableHead>Owner</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Parent</TableHead>
+                <TableHead>Hosts</TableHead>
+                <TableHead>Tasks</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {configs.map((config, index) => (
                 <TableRow key={config.path}>
+                  <TableCell>
+                    <Checkbox />
+                  </TableCell>
                   <TableCell>
                     <Input
                       value={config.name}
@@ -374,116 +375,120 @@ const App: React.FC = () => {
                     />
                   </TableCell>
                   <TableCell>
-                    <Input
-                      value={config.description}
-                      onChange={(e) =>
-                        updateConfig(index, "description", e.target.value)
-                      }
-                    />
+                    <div className="flex items-center space-x-2">
+                      <Avatar>
+                        <AvatarImage
+                          src={`https://i.pravatar.cc/150?img=${index + 1}`}
+                          alt="Owner"
+                        />
+                        <AvatarFallback>
+                          {config.name ? config.name[0] : "U"}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span>{config.name || "Unknown"}</span>
+                    </div>
                   </TableCell>
-                  <TableCell>{config.path}</TableCell>
                   <TableCell>
-                    <Select
-                      value={configStates[config.path]?.selectedHost || "all"}
-                      onValueChange={(value) =>
-                        updateConfigState(config.path, "selectedHost", value)
+                    <Badge
+                      variant={
+                        config.status === "DEPLOYED"
+                          ? "success"
+                          : config.status === "DRAFT"
+                            ? "secondary"
+                            : "warning"
                       }
-                      onOpenChange={(isOpen) => {
-                        if (isOpen) {
-                          fetchTasksAndHosts(config.path);
-                        }
-                      }}
                     >
-                      <SelectTrigger className="w-[120px]">
-                        <SelectValue placeholder="Select host" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {loadingStates[config.path] ? (
-                          <SelectItem value="loading" disabled>
-                            Loading...
-                          </SelectItem>
-                        ) : configStates[config.path]?.hosts?.length > 0 ? (
-                          configStates[config.path].hosts.map((host) => (
+                      {config.status}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>None</TableCell>
+
+                  <TableCell>
+                    <div className="min-w-[120px]">
+                      <Select
+                        value={configStates[config.path]?.selectedHost || "all"}
+                        onValueChange={(value) =>
+                          updateConfigState(config.path, "selectedHost", value)
+                        }
+                        onOpenChange={(open) => {
+                          if (open) fetchTasksAndHosts(config.path);
+                        }}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Select host" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {configStates[config.path]?.hosts.map((host) => (
                             <SelectItem key={host} value={host}>
                               {host}
                             </SelectItem>
-                          ))
-                        ) : (
-                          <SelectItem value="all">All</SelectItem>
-                        )}
-                      </SelectContent>
-                    </Select>
-                  </TableCell>
-                  <TableCell>
-                    <Select
-                      value={configStates[config.path]?.selectedTask || "none"}
-                      onValueChange={(value) =>
-                        updateConfigState(config.path, "selectedTask", value)
-                      }
-                      onOpenChange={(isOpen) => {
-                        if (isOpen) {
-                          fetchTasksAndHosts(config.path);
-                        }
-                      }}
-                    >
-                      <SelectTrigger className="w-[120px]">
-                        <SelectValue placeholder="Select task" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {loadingStates[config.path] ? (
-                          <SelectItem value="loading" disabled>
-                            Loading...
-                          </SelectItem>
-                        ) : (
-                          <>
-                            <SelectItem value="none">None</SelectItem>
-                            {configStates[config.path]?.tasks?.length > 0 ? (
-                              configStates[config.path].tasks.map((task) => (
-                                <SelectItem key={task} value={task}>
-                                  {task}
-                                </SelectItem>
-                              ))
-                            ) : (
-                              <SelectItem value="no-tasks" disabled>
-                                No tasks available
-                              </SelectItem>
-                            )}
-                          </>
-                        )}
-                      </SelectContent>
-                    </Select>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex space-x-2">
-                      <Button onClick={() => saveConfig(index)}>Save</Button>
-                      <Button
-                        variant="secondary"
-                        onClick={() => deployConfig(config.path)}
-                      >
-                        Deploy
-                      </Button>
-                      <Button
-                        variant="outline"
-                        onClick={() => executeTask(config.path)}
-                      >
-                        Execute Task
-                      </Button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem>Edit</DropdownMenuItem>
-                          <DropdownMenuItem>Share</DropdownMenuItem>
-                          <DropdownMenuItem>Copy Link</DropdownMenuItem>
-                          <DropdownMenuItem className="text-red-600">
-                            Remove
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
+                  </TableCell>
+
+                  <TableCell>
+                    <div className="min-w-[120px]">
+                      <Select
+                        value={
+                          configStates[config.path]?.selectedTask || "none"
+                        }
+                        onValueChange={(value) =>
+                          updateConfigState(config.path, "selectedTask", value)
+                        }
+                        onOpenChange={(open) => {
+                          if (open) fetchTasksAndHosts(config.path);
+                        }}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Select task" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">None</SelectItem>
+                          {configStates[config.path]?.tasks.map((task) => (
+                            <SelectItem key={task} value={task}>
+                              {task}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </TableCell>
+
+                  <TableCell>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => saveConfig(index)}>
+                          Save
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => deployConfig(config.path)}
+                        >
+                          Deploy
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => executeTask(config.path)}
+                        >
+                          Execute Task
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem>Edit</DropdownMenuItem>
+                        <DropdownMenuItem>Share</DropdownMenuItem>
+                        <DropdownMenuItem>Copy Link</DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-red-600"
+                          onClick={() => removeConfig(index)}
+                        >
+                          Remove
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </TableCell>
                 </TableRow>
               ))}
@@ -507,7 +512,7 @@ const App: React.FC = () => {
           </div>
           <div className="mt-4">
             <h2 className="text-xl font-semibold">Logs</h2>
-            <pre className="bg-gray-100 p-2 rounded max-h-60 overflow-auto">
+            <pre className="bg-gray-200 p-2 rounded max-h-60 overflow-auto">
               {logs.map((log, index) => (
                 <div key={index}>{log}</div>
               ))}
