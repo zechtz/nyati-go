@@ -8,3 +8,4 @@ web/build
 configs.json
 nyatictl.log
 github.properties
+nyatictl.db
