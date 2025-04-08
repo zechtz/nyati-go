@@ -40,36 +40,79 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  /* Custom Tailwind Colors */
-  --color-hyper-blue: #1a2a44;
-  --color-hyper-cyan: #17a2b8;
-  --color-hyper-gray: #f5f6fa;
+  /* Brand Colors from HyperQube UI - Updated with exact color codes */
+  --color-hyper-blue: #1a1c54; /* Header dark blue - updated */
+  --color-hyper-sidebar: #31359a; /* Sidebar purple - updated */
+  --color-hyper-cyan: #2797cc; /* Create button blue - updated */
+  --color-hyper-gray: #f5f6fa; /* Background gray */
+  --color-hyper-success: #4cd964; /* Deployed green */
+  --color-hyper-warning: #ffcc4d; /* Template yellow/orange */
+  --color-hyper-draft: #e0e0e5; /* Draft light gray */
 
-  --color-primary-50: #e8ebf0;
-  --color-primary-100: #d0d7e2;
-  --color-primary-200: #a0afc4;
-  --color-primary-300: #7187a7;
-  --color-primary-400: #415f89;
-  --color-primary-500: #1a2a44;
-  --color-primary-600: #15223a;
-  --color-primary-700: #111a2f;
-  --color-primary-800: #0c1325;
-  --color-primary-900: #080c1a;
+  /* Primary (Header color - dark navy blue) */
+  --color-primary-50: #e6e6ef;
+  --color-primary-100: #cdcee0;
+  --color-primary-200: #9b9dc0;
+  --color-primary-300: #696ca1;
+  --color-primary-400: #373b82;
+  --color-primary-500: #1a1c54; /* Header color - updated */
+  --color-primary-600: #151746;
+  --color-primary-700: #111238;
+  --color-primary-800: #0d0e2a;
+  --color-primary-900: #09091c;
 
-  --color-secondary-50: #e6f7fa;
-  --color-secondary-100: #cceff5;
-  --color-secondary-200: #99dfeb;
-  --color-secondary-300: #66cfe1;
-  --color-secondary-400: #33bfd7;
-  --color-secondary-500: #17a2b8;
-  --color-secondary-600: #148293;
-  --color-secondary-700: #10616f;
-  --color-secondary-800: #0b414a;
-  --color-secondary-900: #072025;
+  /* Secondary (Sidebar color - royal blue) */
+  --color-secondary-50: #e9e9f5;
+  --color-secondary-100: #d3d4ec;
+  --color-secondary-200: #a7a8d9;
+  --color-secondary-300: #7b7dc5;
+  --color-secondary-400: #5052b2;
+  --color-secondary-500: #31359a; /* Sidebar color - updated */
+  --color-secondary-600: #292c82;
+  --color-secondary-700: #21236a;
+  --color-secondary-800: #191a52;
+  --color-secondary-900: #110e38;
 
+  /* Cyan (Create button color) */
+  --color-cyan-50: #e8f5fa;
+  --color-cyan-100: #d1ecf5;
+  --color-cyan-200: #a3d8eb;
+  --color-cyan-300: #75c5e1;
+  --color-cyan-400: #47b1d6;
+  --color-cyan-500: #2797cc; /* Create button color - updated */
+  --color-cyan-600: #2080ad;
+  --color-cyan-700: #1a698d;
+  --color-cyan-800: #13526e;
+  --color-cyan-900: #0d3b4e;
+
+  /* Success (Deployed green) */
+  --color-success-50: #eefdf0;
+  --color-success-100: #ddfbe1;
+  --color-success-200: #bbf7c3;
+  --color-success-300: #99f3a5;
+  --color-success-400: #77ef87;
+  --color-success-500: #4cd964; /* Deployed green */
+  --color-success-600: #3eb753;
+  --color-success-700: #309541;
+  --color-success-800: #237430;
+  --color-success-900: #154c1f;
+
+  /* Warning (Template yellow/orange) */
+  --color-warning-50: #fff9e6;
+  --color-warning-100: #fff3cc;
+  --color-warning-200: #ffe799;
+  --color-warning-300: #ffdb66;
+  --color-warning-400: #ffcf33;
+  --color-warning-500: #ffcc4d; /* Template yellow */
+  --color-warning-600: #d9a620;
+  --color-warning-700: #b38619;
+  --color-warning-800: #8c6913;
+  --color-warning-900: #66470d;
+
+  /* Gray (Background and UI elements) */
   --color-gray-50: #ffffff;
-  --color-gray-100: #f5f6fa;
-  --color-gray-200: #e9ebf3;
+  --color-gray-100: #f5f6fa; /* Background light gray */
+  --color-gray-200: #e0e0e5; /* Draft status gray */
   --color-gray-300: #d8dce8;
   --color-gray-400: #c8cddd;
   --color-gray-500: #b7bed1;
@@ -81,6 +124,39 @@
 
 :root {
   --radius: 0.625rem;
+
+  /* Light theme default colors */
+  --background: #ffffff;
+  --foreground: #222222;
+  --card: #f5f6fa;
+  --card-foreground: #222222;
+  --popover: #ffffff;
+  --popover-foreground: #222222;
+  --primary: #1a1c54; /* Header dark navy - updated */
+  --primary-foreground: #ffffff;
+  --secondary: #31359a; /* Sidebar royal blue - updated */
+  --secondary-foreground: #ffffff;
+  --muted: #e0e0e5;
+  --muted-foreground: #6b7280;
+  --accent: #2797cc; /* Cyan button - updated */
+  --accent-foreground: #ffffff;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: #e0e0e5;
+  --input: #e0e0e5;
+  --ring: #31359a;
+  --success: #4cd964; /* Deployed green */
+  --warning: #ffcc4d; /* Template yellow */
+
+  /* Sidebar specific colors */
+  --sidebar: #31359a;
+  --sidebar-foreground: #ffffff;
+  --sidebar-primary: #1a1c54;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #2797cc;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgba(255, 255, 255, 0.1);
+  --sidebar-ring: rgba(255, 255, 255, 0.3);
 }
 
 @layer base {
@@ -99,28 +175,27 @@
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
+  --primary: #1a1c54; /* Maintain consistency with light theme - updated */
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: #31359a; /* Maintain consistency with light theme - updated */
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
   --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
+  --accent: #2797cc; /* Maintain consistency with light theme - updated */
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
+  --success: #4cd964; /* Maintain consistency with light theme */
+  --warning: #ffcc4d; /* Maintain consistency with light theme */
+
+  /* Dark theme sidebar */
+  --sidebar: #31359a; /* Updated */
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary: #1a1c54; /* Updated */
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent: #2797cc; /* Updated */
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
