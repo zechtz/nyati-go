@@ -4,9 +4,9 @@ import (
 	"flag"
 	"log"
 
+	"github.com/zechtz/nyatictl/api"
 	"github.com/zechtz/nyatictl/cli"
 	"github.com/zechtz/nyatictl/logger"
-	"github.com/zechtz/nyatictl/web"
 )
 
 // version represents the current release version of the application.
@@ -70,12 +70,12 @@ func main() {
 	// -----------------------------
 
 	// Set the config path for the web layer (used globally in web package)
-	web.ConfigFilePath = *configsPath
+	api.ConfigFilePath = *configsPath
 
 	// Ensure that the config file exists at the specified path.
 	// If it does not exist, it will be created with an empty JSON array ([]).
 	// This prevents "file not found" errors during web UI interactions.
-	if err := web.EnsureConfigsFile(); err != nil {
+	if err := api.EnsureConfigsFile(); err != nil {
 		log.Fatalf("Failed to create config file at '%s': %v", *configsPath, err)
 	}
 
@@ -85,7 +85,7 @@ func main() {
 
 	if *webMode {
 		// WEB MODE: Start the backend HTTP server for the web UI
-		server, err := web.NewServer()
+		server, err := api.NewServer()
 		if err != nil {
 			panic(err) // Startup failed — cannot proceed
 		}
