@@ -293,7 +293,7 @@ const App: React.FC = () => {
     <div className="flex h-screen bg-gray-100">
       {/* Header */}
       <header className="absolute top-0 left-0 right-0 bg-primary-500 text-white p-4 flex justify-between items-center z-10">
-        <h1 className="text-2xl font-bold">NyatiCtl</h1>
+        <h1 className="text-2xl font-inter">NyatiCtl</h1>
         <div className="flex items-center space-x-4">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
@@ -330,7 +330,7 @@ const App: React.FC = () => {
       <div className="flex-1 flex flex-col pt-16">
         <main className="flex-1 p-6 overflow-auto">
           <div className="mb-4">
-            <h2 className="text-2xl font-semibold">Manage Configs</h2>
+            <h2 className="text-2xl font-inter">Manage Configs</h2>
             <p className="text-gray-600">
               Manage your configurations from the same page.
             </p>
@@ -511,7 +511,7 @@ const App: React.FC = () => {
             </div>
           </div>
           <div className="mt-4">
-            <h2 className="text-xl font-semibold">Logs</h2>
+            <h2 className="text-xl font-inter">Logs</h2>
             <pre className="bg-gray-200 p-2 rounded max-h-60 overflow-auto">
               {logs.map((log, index) => (
                 <div key={index}>{log}</div>

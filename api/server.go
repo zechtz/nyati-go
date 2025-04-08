@@ -94,7 +94,7 @@ func NewServer() (*Server, error) {
 		return nil, fmt.Errorf("failed to hash password: %v", err)
 	}
 
-	_, err = db.Exec(`INSERT OR IGNORE INTO users (email, password, created_at) VALUES (?, ?, ?)`, "mtabe@example.com", string(hashedPassword), time.Now().Format(time.RFC3339))
+	_, err = db.Exec(`INSERT OR IGNORE INTO users (email, password, created_at) VALUES (?, ?, ?)`, "admin@example.com", string(hashedPassword), time.Now().Format(time.RFC3339))
 	if err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to insert default user: %v", err)

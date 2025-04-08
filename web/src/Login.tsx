@@ -52,7 +52,7 @@ const Login: React.FC = () => {
     <div className="min-h-screen flex items-center justify-center bg-hyper-gray">
       <Card className="w-full max-w-md shadow-lg">
         <CardHeader className="text-center">
-          <h1 className="text-3xl font-bold text-hyper-blue">NyatiCtl</h1>
+          <h1 className="text-3xl font-inter text-hyper-blue">NyatiCtl</h1>
           <CardTitle className="text-2xl mt-2 text-hyper-blue">Login</CardTitle>
         </CardHeader>
         <CardContent>
@@ -60,7 +60,7 @@ const Login: React.FC = () => {
             <div>
               <label
                 htmlFor="email"
-                className="block text-sm font-medium text-gray-700"
+                className="block text-sm font-inter text-gray-700"
               >
                 Email
               </label>
@@ -77,7 +77,7 @@ const Login: React.FC = () => {
             <div>
               <label
                 htmlFor="password"
-                className="block text-sm font-medium text-gray-700"
+                className="block text-sm font-inter text-gray-700"
               >
                 Password
               </label>
