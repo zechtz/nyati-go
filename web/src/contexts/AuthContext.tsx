@@ -2,7 +2,7 @@ import React, { createContext, useState, useContext, useEffect } from "react";
 import axios from "axios";
 import { toast } from "react-toastify";
 
-interface User {
+export interface User {
   id: number;
   email: string;
   created_at: string;
@@ -125,6 +125,14 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
       // Save the token to localStorage
       localStorage.setItem("authToken", token);
+
+      const payload: User = {
+        email: user.email,
+        id: user.id,
+        created_at: user.created_at,
+      };
+
+      localStorage.setItem("NYATI_USER", JSON.stringify(payload));
 
       // Set the auth header for all future requests
       axios.defaults.headers.common["Authorization"] = `Bearer ${token}`;

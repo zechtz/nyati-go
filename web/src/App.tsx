@@ -43,6 +43,12 @@ export interface ConfigEntry {
   status?: "DEPLOYED" | "DRAFT" | "TEMPLATE"; // Add status field
 }
 
+export type User = {
+  id: number;
+  email: string;
+  created_at: string;
+};
+
 export interface ConfigState {
   selectedHost: string;
   selectedTask: string;
@@ -59,6 +65,7 @@ const App: React.FC = () => {
   const [configs, setConfigs] = useState<ConfigEntry[]>([]);
   const [newConfigPath, setNewConfigPath] = useState("");
   const [logs, setLogs] = useState<string[]>([]);
+  const [user, setUser] = useState<User>({} as User);
   const [configStates, setConfigStates] = useState<{
     [key: string]: ConfigState;
   }>({});
@@ -286,8 +293,18 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
+    fetchUser();
     fetchConfigs();
   }, []);
+
+  const fetchUser = () => {
+    const userStore = localStorage.getItem("NYATI_USER");
+    const user: User = JSON.parse(userStore || "{}");
+    setUser((prev) => ({
+      ...prev,
+      ...user,
+    }));
+  };
 
   return (
     <div className="flex h-screen bg-gray-100">
@@ -306,7 +323,7 @@ const App: React.FC = () => {
                   <AvatarImage src="https://github.com/shadcn.png" alt="User" />
                   <AvatarFallback>JD</AvatarFallback>
                 </Avatar>
-                <span>John Doe</span>
+                <span>{user.email}</span>
               </div>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
