@@ -16,9 +16,9 @@ const Sidebar = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isBlueprintsOpen, setIsBlueprintsOpen] = useState(false);
   const [newConfigPath, setNewConfigPath] = useState("");
-  const [configs, setConfigs] = useState<ConfigEntry[]>([]);
+  const [, setConfigs] = useState<ConfigEntry[]>([]);
 
-  const [configStates, setConfigStates] = useState<{
+  const [, setConfigStates] = useState<{
     [key: string]: ConfigState;
   }>({});
 

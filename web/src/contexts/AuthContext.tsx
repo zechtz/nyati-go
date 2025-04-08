@@ -50,7 +50,7 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         axios.defaults.headers.common["Authorization"] = `Bearer ${token}`;
 
         // Verify token by making a request to a protected endpoint
-        const response = await axios.get("/api/configs");
+        await axios.get("/api/configs");
 
         // If we get here, the token is valid
         setIsAuthenticated(true);

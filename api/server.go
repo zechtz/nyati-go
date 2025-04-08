@@ -2,7 +2,6 @@ package api
 
 import (
 	"database/sql"
-	"embed"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -20,10 +19,13 @@ import (
 	"github.com/zechtz/nyatictl/cli"
 	"github.com/zechtz/nyatictl/config"
 	"github.com/zechtz/nyatictl/logger"
+	"github.com/zechtz/nyatictl/web"
 	"golang.org/x/crypto/bcrypt"
 )
 
-var embeddedUI embed.FS
+// Embed the web/build directory
+// Note: This assumes the web/build directory is at the same level as your Go module root
+// You may need to adjust the path based on your project structure
 
 // Server represents the backend web server for the UI.
 //
@@ -149,6 +151,12 @@ func (s *Server) Start(port string) error {
 
 	r := mux.NewRouter()
 
+	// --- Serve embedded frontend ---
+	uiFS, err := fs.Sub(web.EmbeddedUI, "dist")
+	if err != nil {
+		log.Fatalf("Failed to access embedded UI: %v", err)
+	}
+
 	// Add CORS middleware
 	corsHandler := handlers.CORS(
 		handlers.AllowedOrigins([]string{"http://localhost:3000", "http://localhost:5173"}),
@@ -182,12 +190,6 @@ func (s *Server) Start(port string) error {
 	r.HandleFunc("/ws/logs/{sessionID}", s.handleLogsWebSocket)
 
 	// --- EMBEDDED STATIC UI ---
-
-	// Serve embedded frontend files from /build
-	uiFS, err := fs.Sub(embeddedUI, "build")
-	if err != nil {
-		log.Fatalf("Failed to mount embedded UI filesystem: %v", err)
-	}
 
 	// Create a file server handler
 	fileServer := http.FileServer(http.FS(uiFS))
