@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -13,6 +14,10 @@ import (
 
 // secretKey should be stored in an environment variable in production
 var secretKey = []byte("secret-key-change-production")
+
+type contextKey string
+
+const userClaimsKey contextKey = "userClaims"
 
 // TokenExpiration is the JWT token expiration time (24 hours)
 const TokenExpiration = 24 * time.Hour
@@ -139,12 +144,18 @@ func AuthMiddleware(next http.Handler) http.Handler {
 		}
 
 		// Add user info to the request context
-		ctx := r.Context()
+		ctx := context.WithValue(r.Context(), userClaimsKey, claims)
 		r = r.WithContext(ctx)
 
 		// Pass control to the next handler
 		next.ServeHTTP(w, r)
 	})
+}
+
+// GetUserFromContext extracts the user claims from the context
+func GetUserFromContext(r *http.Request) (*Claims, bool) {
+	claims, ok := r.Context().Value(userClaimsKey).(*Claims)
+	return claims, ok
 }
 
 // HandleLogout doesn't actually invalidate the token (since JWTs are stateless)
