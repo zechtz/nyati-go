@@ -51,31 +51,38 @@ type Server struct {
 //   - *Server: a fully initialized web server instance
 //   - error: if database setup or config loading fails
 func NewServer() (*Server, error) {
+	// Ensure all migrations are applied before initializing the server
+	if err := EnsureDatabaseMigrated(); err != nil {
+		return nil, fmt.Errorf("migration check failed: %v", err)
+	}
+
 	// Initialize SQLite database connection
 	db, err := sql.Open("sqlite3", "./nyatictl.db")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %v", err)
 	}
 
-	// Create configs table
+	// Create configs table if it doesn't exist
 	createConfigsTable := `
   CREATE TABLE IF NOT EXISTS configs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT,
     description TEXT,
     path TEXT UNIQUE,
-    status TEXT
+    status TEXT,
+    user_id INTEGER DEFAULT 1
     );`
 	_, err = db.Exec(createConfigsTable)
 	if err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to create configs table: %v", err)
 	}
-	// Create users table
+
+	// Create users table if it doesn't exist
 	createUsersTable := `CREATE TABLE IF NOT EXISTS users(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     email TEXT UNIQUE,
-    password hash TEXT,
+    password TEXT,
     created_at TEXT
   );`
 
@@ -85,8 +92,7 @@ func NewServer() (*Server, error) {
 		return nil, fmt.Errorf("failed to create users table: %v", err)
 	}
 
-	// insert a default user for testing (in a real app, we'd hash the password)
-
+	// Insert a default user for testing if it doesn't exist
 	password := "secret"
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -94,12 +100,15 @@ func NewServer() (*Server, error) {
 		return nil, fmt.Errorf("failed to hash password: %v", err)
 	}
 
-	_, err = db.Exec(`INSERT OR IGNORE INTO users (email, password, created_at) VALUES (?, ?, ?)`, "admin@example.com", string(hashedPassword), time.Now().Format(time.RFC3339))
+	_, err = db.Exec(`INSERT OR IGNORE INTO users (email, password, created_at) VALUES (?, ?, ?)`,
+		"admin@example.com", string(hashedPassword), time.Now().Format(time.RFC3339))
 	if err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to insert default user: %v", err)
 	}
-	// load configs from  the database
+
+	// Load all configs from the database initially (for server startup)
+	// We don't specify a user_id here because we want all configs
 	configs, err := LoadConfigs(db)
 	if err != nil {
 		db.Close()
@@ -159,7 +168,7 @@ func (s *Server) Start(port string) error {
 
 	// Add CORS middleware
 	corsHandler := handlers.CORS(
-		handlers.AllowedOrigins([]string{"http://localhost:3000", "http://localhost:5173"}),
+		handlers.AllowedOrigins([]string{"*"}),
 		handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}),
 		handlers.AllowedHeaders([]string{"Content-Type", "Authorization"}),
 		handlers.ExposedHeaders([]string{"Content-Type"}),
@@ -212,11 +221,19 @@ func (s *Server) Start(port string) error {
 
 // handleGetConfigs returns all saved configuration entries as JSON.
 func (s *Server) handleGetConfigs(w http.ResponseWriter, r *http.Request) {
+	// get  user id from context
+	claims, ok := GetUserFromContext(r)
+
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	s.configsLock.Lock()
 	defer s.configsLock.Unlock()
 
 	// Reload configs from the database to ensure freshness
-	configs, err := LoadConfigs(s.db)
+	configs, err := LoadConfigs(s.db, claims.UserID)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to load configs: %v", err), http.StatusInternalServerError)
 		return
@@ -235,11 +252,21 @@ func (s *Server) handleGetConfigs(w http.ResponseWriter, r *http.Request) {
 
 // handleSaveConfigs accepts a new or updated config entry and persists it to disk.
 func (s *Server) handleSaveConfigs(w http.ResponseWriter, r *http.Request) {
+	// Get user ID from the JWT claims in context
+	claims, ok := GetUserFromContext(r)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	var entry ConfigEntry
 	if err := json.NewDecoder(r.Body).Decode(&entry); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
+
+	// Set the user ID for the config
+	entry.UserID = claims.UserID
 
 	s.configsLock.Lock()
 	defer s.configsLock.Unlock()
@@ -248,21 +275,30 @@ func (s *Server) handleSaveConfigs(w http.ResponseWriter, r *http.Request) {
 	updated := false
 	for i, cfg := range s.configs {
 		if cfg.Path == entry.Path {
+			// Only allow updates if the user owns the config
+			if cfg.UserID != claims.UserID {
+				http.Error(w, "You don't have permission to modify this config", http.StatusForbidden)
+				return
+			}
 			s.configs[i] = entry
 			updated = true
 			break
 		}
 	}
+
 	if !updated {
 		s.configs = append(s.configs, entry)
 	}
 
-	if err := SaveConfigs(s.db, s.configs); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to save configs: %v", err), http.StatusInternalServerError)
+	// Save the config to the database
+	if err := SaveConfig(s.db, entry); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "Config saved successfully"})
 }
 
 // handleConfigDetails loads a specified config file and returns its task and host names.
@@ -302,6 +338,13 @@ func (s *Server) handleConfigDetails(w http.ResponseWriter, r *http.Request) {
 
 // handleDeploy triggers a deployment using the provided config and host.
 func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
+	// Get user ID from the JWT claims in context
+	claims, ok := GetUserFromContext(r)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	var req struct {
 		ConfigPath string `json:"configPath"`
 		Host       string `json:"host"`
@@ -309,6 +352,24 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Check if the user owns this config
+	var userID int
+	err := s.db.QueryRow("SELECT user_id FROM configs WHERE path = ?", req.ConfigPath).Scan(&userID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Config not found", http.StatusNotFound)
+		} else {
+			http.Error(w, fmt.Sprintf("Database error: %v", err), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Verify ownership
+	if userID != claims.UserID {
+		http.Error(w, "You don't have permission to deploy this config", http.StatusForbidden)
 		return
 	}
 
@@ -343,11 +404,13 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 		for i, cfg := range s.configs {
 			if cfg.Path == req.ConfigPath {
 				s.configs[i].Status = "DEPLOYED"
+
+				// Save the updated status to the database
+				if err := SaveConfig(s.db, s.configs[i]); err != nil {
+					logger.Log(fmt.Sprintf("Failed to update config status: %v", err))
+				}
 				break
 			}
-		}
-		if err := SaveConfigs(s.db, s.configs); err != nil {
-			logger.Log(fmt.Sprintf("Failed to update config status: %v", err))
 		}
 		s.configsLock.Unlock()
 	}()
@@ -357,6 +420,13 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 
 // handleExecuteTask runs a single task for a host using CLI execution.
 func (s *Server) handleExecuteTask(w http.ResponseWriter, r *http.Request) {
+	// Get user ID from the JWT claims in context
+	claims, ok := GetUserFromContext(r)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	var req struct {
 		ConfigPath string `json:"configPath"`
 		Host       string `json:"host"`
@@ -365,6 +435,24 @@ func (s *Server) handleExecuteTask(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Check if the user owns this config
+	var userID int
+	err := s.db.QueryRow("SELECT user_id FROM configs WHERE path = ?", req.ConfigPath).Scan(&userID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Config not found", http.StatusNotFound)
+		} else {
+			http.Error(w, fmt.Sprintf("Database error: %v", err), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Verify ownership
+	if userID != claims.UserID {
+		http.Error(w, "You don't have permission to execute tasks on this config", http.StatusForbidden)
 		return
 	}
 
