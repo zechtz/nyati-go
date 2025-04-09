@@ -97,6 +97,41 @@ nyatictl --help
 
 Displays usage information and available flags.
 
+## Database Management
+
+### Generate Migration:
+
+```bash
+nyatictl db generate add_new_column
+
+```
+
+Creates a new migration file with timestamp in the db/migrations directory.
+
+### Run Migrations
+
+```bash
+nyatictl db migrate
+```
+
+Applies all pending database migrations.
+
+### Check Migration Status:
+
+```bash
+nyatictl db status
+```
+
+Shows the status of applied and pending migrations.
+
+### Roll Back Migration:
+
+```bash
+nyatictl db rollback
+```
+
+Reverts the most recent migration.
+
 ### Flags
 
 | Flag            | Shorthand | Description                                      | Default                     |
@@ -243,6 +278,28 @@ If appname: "myapp" and params: { env: "prod" }, this becomes:
 
 ```bash
 echo "Deploying myapp to prod"
+```
+
+### Database Migrations
+
+Nyatictl includes a robust database migration system with:
+
+- Versioned Migrations: Timestamp-based ordering ensures consistent execution
+- UP/DOWN Support: Each migration can be applied and rolled back
+- Transaction Support: Changes are atomic and consistent
+- CLI Commands: Generate, apply, and roll back migrations easily
+
+### Migration File Format
+
+```sq
+-- UP
+-- SQL statements to apply the migration
+ALTER TABLE configs ADD COLUMN user_id INTEGER DEFAULT 1;
+
+-- DOWN
+-- SQL statements to roll back the migration
+CREATE TABLE configs_backup AS SELECT id, name, description, path, status FROM configs;
+-- Additional rollback commands...
 ```
 
 ### Examples
