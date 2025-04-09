@@ -63,6 +63,7 @@ func NewServer() (*Server, error) {
 	}
 
 	// Create configs table if it doesn't exist
+	// should probably be moved to the migrations directory
 	createConfigsTable := `
   CREATE TABLE IF NOT EXISTS configs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -78,7 +79,8 @@ func NewServer() (*Server, error) {
 		return nil, fmt.Errorf("failed to create configs table: %v", err)
 	}
 
-	// Create users table if it doesn't exist
+	// Create users table if it doesn't exist // should probably move this to the
+	// migrations folder
 	createUsersTable := `CREATE TABLE IF NOT EXISTS users(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     email TEXT UNIQUE,

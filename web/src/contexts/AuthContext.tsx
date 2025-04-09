@@ -1,109 +1,92 @@
-import React, { createContext, useState, useContext, useEffect } from "react";
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  ReactNode,
+} from "react";
 import axios from "axios";
-import { toast } from "react-toastify";
-
-export interface User {
-  id: number;
-  email: string;
-  created_at: string;
-}
+import { User } from "../App";
 
 interface AuthContextType {
-  isAuthenticated: boolean;
   user: User | null;
-  loading: boolean;
-  login: (email: string, password: string) => Promise<boolean>;
+  token: string | null;
+  isAuthenticated: boolean;
+  login: (email: string, password: string) => Promise<void>;
   logout: () => void;
+  register: (email: string, password: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
-  isAuthenticated: false,
   user: null,
-  loading: true,
-  login: async () => false,
+  token: null,
+  isAuthenticated: false,
+  login: async () => {},
   logout: () => {},
+  register: async () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
 
 interface AuthProviderProps {
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
-const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [token, setToken] = useState<string | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
+  // Initialize auth state from localStorage
   useEffect(() => {
-    // Check if user is already logged in
-    const checkAuthStatus = async () => {
-      const token = localStorage.getItem("authToken");
+    const storedToken = localStorage.getItem("NYATI_TOKEN");
+    const storedUser = localStorage.getItem("NYATI_USER");
 
-      if (!token) {
-        setLoading(false);
-        return;
-      }
+    if (storedToken && storedUser) {
+      setToken(storedToken);
+      setUser(JSON.parse(storedUser));
+      setIsAuthenticated(true);
 
-      try {
-        // Set the auth header
-        axios.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+      // Set axios default headers
+      axios.defaults.headers.common["Authorization"] = `Bearer ${storedToken}`;
+    }
 
-        // Verify token by making a request to a protected endpoint
-        await axios.get("/api/configs");
-
-        // If we get here, the token is valid
-        setIsAuthenticated(true);
-
-        // Optionally fetch user data - would need a /api/me endpoint
-        // const userResponse = await axios.get("/api/me");
-        // setUser(userResponse.data);
-      } catch (error) {
-        // Token is invalid
-        localStorage.removeItem("authToken");
-        delete axios.defaults.headers.common["Authorization"];
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    checkAuthStatus();
+    setIsLoading(false);
   }, []);
 
-  // Set up an axios interceptor to handle token expiration
+  // Setup axios interceptor to handle token refresh
   useEffect(() => {
     const interceptor = axios.interceptors.response.use(
       (response) => response,
       async (error) => {
         const originalRequest = error.config;
 
-        // If the error is 401 Unauthorized and we haven't already tried to refresh the token
+        // If the error is 401 and we haven't tried to refresh the token yet
         if (
           error.response?.status === 401 &&
           !originalRequest._retry &&
-          isAuthenticated
+          token
         ) {
           originalRequest._retry = true;
 
           try {
-            // Try to refresh the token
             const response = await axios.post("/api/refresh-token");
-            const { token } = response.data;
+            const newToken = response.data.token;
 
-            // Update the token in localStorage and axios headers
-            localStorage.setItem("authToken", token);
-            axios.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+            // Update token in state and localStorage
+            setToken(newToken);
+            localStorage.setItem("NYATI_TOKEN", newToken);
+
+            // Update axios headers
+            axios.defaults.headers.common["Authorization"] =
+              `Bearer ${newToken}`;
 
             // Retry the original request
             return axios(originalRequest);
           } catch (refreshError) {
-            // If refreshing the token fails, log the user out
-            localStorage.removeItem("authToken");
-            delete axios.defaults.headers.common["Authorization"];
-            setIsAuthenticated(false);
-            setUser(null);
-            toast.error("Session expired. Please log in again.");
-
+            // If refresh fails, log the user out
+            logout();
             return Promise.reject(refreshError);
           }
         }
@@ -112,67 +95,74 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       },
     );
 
-    // Clean up the interceptor when the component unmounts
     return () => {
       axios.interceptors.response.eject(interceptor);
     };
-  }, [isAuthenticated]);
+  }, [token]);
 
-  const login = async (email: string, password: string): Promise<boolean> => {
+  const login = async (email: string, password: string) => {
     try {
       const response = await axios.post("/api/login", { email, password });
       const { token, user } = response.data;
 
-      // Save the token to localStorage
-      localStorage.setItem("authToken", token);
+      // Store token and user in localStorage
+      localStorage.setItem("NYATI_TOKEN", token);
+      localStorage.setItem("NYATI_USER", JSON.stringify(user));
 
-      const payload: User = {
-        email: user.email,
-        id: user.id,
-        created_at: user.created_at,
-      };
-
-      localStorage.setItem("NYATI_USER", JSON.stringify(payload));
-
-      // Set the auth header for all future requests
-      axios.defaults.headers.common["Authorization"] = `Bearer ${token}`;
-
-      // Update the auth state
-      setIsAuthenticated(true);
+      // Update state
+      setToken(token);
       setUser(user);
+      setIsAuthenticated(true);
 
-      return true;
+      // Set authorization header for future requests
+      axios.defaults.headers.common["Authorization"] = `Bearer ${token}`;
     } catch (error) {
-      return false;
+      console.error("Login failed:", error);
+      throw error;
     }
   };
 
   const logout = () => {
-    // Send logout request to backend (optional)
-    axios.post("/api/logout").catch(() => {
-      // Even if the request fails, continue with local logout
-    });
+    // Clear localStorage
+    localStorage.removeItem("NYATI_TOKEN");
+    localStorage.removeItem("NYATI_USER");
 
-    // Remove token from localStorage
-    localStorage.removeItem("authToken");
+    // Clear state
+    setToken(null);
+    setUser(null);
+    setIsAuthenticated(false);
 
-    // Remove auth header
+    // Remove authorization header
     delete axios.defaults.headers.common["Authorization"];
 
-    // Update auth state
-    setIsAuthenticated(false);
-    setUser(null);
+    // Call logout API (optional, since JWT is stateless)
+    axios.post("/api/logout").catch((error) => {
+      console.error("Logout API call failed:", error);
+    });
   };
 
-  const value = {
-    isAuthenticated,
-    user,
-    loading,
-    login,
-    logout,
+  const register = async (email: string, password: string) => {
+    try {
+      await axios.post("/api/register", { email, password });
+      // After registration, log the user in
+      await login(email, password);
+    } catch (error) {
+      console.error("Registration failed:", error);
+      throw error;
+    }
   };
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  if (isLoading) {
+    return <div>Loading authentication...</div>;
+  }
+
+  return (
+    <AuthContext.Provider
+      value={{ user, token, isAuthenticated, login, logout, register }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
 };
 
 export default AuthProvider;
