@@ -174,7 +174,7 @@ const MainLayout = () => {
       >
         {/* Logo section at top */}
         <div className="p-5 border-b border-gray-700 flex items-center justify-between bg-primary-500">
-          <h1 className="text-2xl font-inter">Nyativ1.2</h1>
+          <h1 className="text-2xl font-inter">Nyativ1.2.1</h1>
           {isMobile && (
             <Button
               variant="ghost"
