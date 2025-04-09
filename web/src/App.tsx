@@ -1,8 +1,7 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { v4 as uuidv4 } from "uuid";
-import { toast, ToastContainer } from "react-toastify";
+import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import {
   Table,
@@ -32,15 +31,16 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "./components/ui/avatar";
 import { Badge } from "./components/ui/badge";
 import { Checkbox } from "./components/ui/checkbox";
-import { MoreHorizontal, LogOut, Search, User } from "lucide-react";
+import { MoreHorizontal, User } from "lucide-react";
 import { useAuth } from "./contexts/AuthContext";
-import Sidebar from "./components/sidebar/Sidebar";
 
 export interface ConfigEntry {
+  id: number | string;
   name: string;
   description: string;
   path: string;
-  status?: "DEPLOYED" | "DRAFT" | "TEMPLATE"; // Add status field
+  status?: "DEPLOYED" | "DRAFT" | "TEMPLATE";
+  user_id?: number;
 }
 
 export type User = {
@@ -65,13 +65,12 @@ const App: React.FC = () => {
   const [configs, setConfigs] = useState<ConfigEntry[]>([]);
   const [newConfigPath, setNewConfigPath] = useState("");
   const [logs, setLogs] = useState<string[]>([]);
-  const [user, setUser] = useState<User>({} as User);
+  const [, setUser] = useState<User>({} as User);
   const [configStates, setConfigStates] = useState<{
     [key: string]: ConfigState;
   }>({});
 
-  const { logout } = useAuth();
-  const navigate = useNavigate();
+  useAuth();
 
   const fetchConfigs = async () => {
     try {
@@ -164,6 +163,7 @@ const App: React.FC = () => {
   const addConfig = () => {
     if (newConfigPath) {
       const newConfig: ConfigEntry = {
+        id: "",
         name: "",
         description: "",
         path: newConfigPath,
@@ -281,12 +281,6 @@ const App: React.FC = () => {
     toast.success("Config removed successfully!");
   };
 
-  const handleLogout = () => {
-    logout();
-    toast.success("Logged out successfully!");
-    navigate("/login");
-  };
-
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     addConfig();
@@ -307,238 +301,189 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen bg-gray-100">
-      {/* Header */}
-      <header className="absolute top-0 left-0 right-0 bg-primary-500 text-white p-4 flex justify-between items-center z-10">
-        <h1 className="text-2xl font-inter">NyatiCtl</h1>
-        <div className="flex items-center space-x-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-            <Input className="pl-10 bg-white text-black" placeholder="Search" />
-          </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <div className="flex items-center space-x-2 cursor-pointer">
-                <Avatar>
-                  <AvatarImage src="https://github.com/shadcn.png" alt="User" />
-                  <AvatarFallback>JD</AvatarFallback>
-                </Avatar>
-                <span>{user.email}</span>
-              </div>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem>
-                <User className="mr-2 h-4 w-4" />
-                <span>Profile</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleLogout}>
-                <LogOut className="mr-2 h-4 w-4" />
-                <span>Logout</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </header>
-
-      {/* Sidebar */}
-      <Sidebar />
-
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col pt-16">
-        <main className="flex-1 p-6 overflow-auto">
-          <div className="mb-4">
-            <h2 className="text-2xl font-inter">Manage Configs</h2>
-            <p className="text-gray-600">
-              Manage your configurations from the same page.
-            </p>
-          </div>
-          <div className="mb-4">
-            <form onSubmit={handleFormSubmit}>
-              <Input
-                placeholder="Config Path (e.g., nyati.live.yml)"
-                value={newConfigPath}
-                onChange={(e) => setNewConfigPath(e.target.value)}
-                className="max-w-md"
-              />
-            </form>
-          </div>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>
-                  <Checkbox />
-                </TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead>Owner</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Parent</TableHead>
-                <TableHead>Hosts</TableHead>
-                <TableHead>Tasks</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {configs.map((config, index) => (
-                <TableRow key={config.path}>
-                  <TableCell>
-                    <Checkbox />
-                  </TableCell>
-                  <TableCell>
-                    <Input
-                      value={config.name}
-                      onChange={(e) =>
-                        updateConfig(index, "name", e.target.value)
-                      }
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center space-x-2">
-                      <Avatar>
-                        <AvatarImage
-                          src={`https://i.pravatar.cc/150?img=${index + 1}`}
-                          alt="Owner"
-                        />
-                        <AvatarFallback>
-                          {config.name ? config.name[0] : "U"}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span>{config.name || "Unknown"}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant={
-                        config.status === "DEPLOYED"
-                          ? "success"
-                          : config.status === "DRAFT"
-                            ? "secondary"
-                            : "warning"
-                      }
-                    >
-                      {config.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>None</TableCell>
-
-                  <TableCell>
-                    <div className="min-w-[120px]">
-                      <Select
-                        value={configStates[config.path]?.selectedHost || "all"}
-                        onValueChange={(value) =>
-                          updateConfigState(config.path, "selectedHost", value)
-                        }
-                        onOpenChange={(open) => {
-                          if (open) fetchTasksAndHosts(config.path);
-                        }}
-                      >
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Select host" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {configStates[config.path]?.hosts.map((host) => (
-                            <SelectItem key={host} value={host}>
-                              {host}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </TableCell>
-
-                  <TableCell>
-                    <div className="min-w-[120px]">
-                      <Select
-                        value={
-                          configStates[config.path]?.selectedTask || "none"
-                        }
-                        onValueChange={(value) =>
-                          updateConfigState(config.path, "selectedTask", value)
-                        }
-                        onOpenChange={(open) => {
-                          if (open) fetchTasksAndHosts(config.path);
-                        }}
-                      >
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Select task" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">None</SelectItem>
-                          {configStates[config.path]?.tasks.map((task) => (
-                            <SelectItem key={task} value={task}>
-                              {task}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </TableCell>
-
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => saveConfig(index)}>
-                          Save
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => deployConfig(config.path)}
-                        >
-                          Deploy
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => executeTask(config.path)}
-                        >
-                          Execute Task
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem>Edit</DropdownMenuItem>
-                        <DropdownMenuItem>Share</DropdownMenuItem>
-                        <DropdownMenuItem>Copy Link</DropdownMenuItem>
-                        <DropdownMenuItem
-                          className="text-red-600"
-                          onClick={() => removeConfig(index)}
-                        >
-                          Remove
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-          <div className="mt-4 flex justify-between items-center">
-            <p className="text-sm text-gray-600">
-              Showing 1 to {configs.length} of {configs.length} entries
-            </p>
-            <div className="flex space-x-2">
-              <Button variant="outline" size="sm">
-                1
-              </Button>
-              <Button variant="outline" size="sm" disabled>
-                2
-              </Button>
-              <Button variant="outline" size="sm" disabled>
-                3
-              </Button>
-            </div>
-          </div>
-          <div className="mt-4">
-            <h2 className="text-xl font-inter">Logs</h2>
-            <pre className="bg-gray-200 p-2 rounded max-h-60 overflow-auto">
-              {logs.map((log, index) => (
-                <div key={index}>{log}</div>
-              ))}
-            </pre>
-          </div>
-        </main>
+    <main className="flex-1 p-6 overflow-auto">
+      <div className="mb-4">
+        <h2 className="text-2xl font-inter">Manage Configs</h2>
+        <p className="text-gray-600">
+          Manage your configurations from the same page.
+        </p>
       </div>
-      <ToastContainer />
-    </div>
+      <div className="mb-4">
+        <form onSubmit={handleFormSubmit}>
+          <Input
+            placeholder="Config Path (e.g., nyati.live.yml)"
+            value={newConfigPath}
+            onChange={(e) => setNewConfigPath(e.target.value)}
+            className="max-w-md"
+          />
+        </form>
+      </div>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>
+              <Checkbox />
+            </TableHead>
+            <TableHead>Name</TableHead>
+            <TableHead>Owner</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>Parent</TableHead>
+            <TableHead>Hosts</TableHead>
+            <TableHead>Tasks</TableHead>
+            <TableHead>Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {configs.map((config, index) => (
+            <TableRow key={config.path}>
+              <TableCell>
+                <Checkbox />
+              </TableCell>
+              <TableCell>
+                <Input
+                  value={config.name}
+                  onChange={(e) => updateConfig(index, "name", e.target.value)}
+                />
+              </TableCell>
+              <TableCell>
+                <div className="flex items-center space-x-2">
+                  <Avatar>
+                    <AvatarImage
+                      src={`https://i.pravatar.cc/150?img=${index + 1}`}
+                      alt="Owner"
+                    />
+                    <AvatarFallback>
+                      {config.name ? config.name[0] : "U"}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span>{config.name || "Unknown"}</span>
+                </div>
+              </TableCell>
+              <TableCell>
+                <Badge
+                  variant={
+                    config.status === "DEPLOYED"
+                      ? "success"
+                      : config.status === "DRAFT"
+                        ? "secondary"
+                        : "warning"
+                  }
+                >
+                  {config.status}
+                </Badge>
+              </TableCell>
+              <TableCell>None</TableCell>
+
+              <TableCell>
+                <div className="min-w-[120px]">
+                  <Select
+                    value={configStates[config.path]?.selectedHost || "all"}
+                    onValueChange={(value) =>
+                      updateConfigState(config.path, "selectedHost", value)
+                    }
+                    onOpenChange={(open) => {
+                      if (open) fetchTasksAndHosts(config.path);
+                    }}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select host" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {configStates[config.path]?.hosts.map((host) => (
+                        <SelectItem key={host} value={host}>
+                          {host}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </TableCell>
+
+              <TableCell>
+                <div className="min-w-[120px]">
+                  <Select
+                    value={configStates[config.path]?.selectedTask || "none"}
+                    onValueChange={(value) =>
+                      updateConfigState(config.path, "selectedTask", value)
+                    }
+                    onOpenChange={(open) => {
+                      if (open) fetchTasksAndHosts(config.path);
+                    }}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select task" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      {configStates[config.path]?.tasks.map((task) => (
+                        <SelectItem key={task} value={task}>
+                          {task}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </TableCell>
+
+              <TableCell>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="sm">
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => saveConfig(index)}>
+                      Save
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => deployConfig(config.path)}>
+                      Deploy
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => executeTask(config.path)}>
+                      Execute Task
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem>Edit</DropdownMenuItem>
+                    <DropdownMenuItem>Share</DropdownMenuItem>
+                    <DropdownMenuItem>Copy Link</DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="text-red-600"
+                      onClick={() => removeConfig(index)}
+                    >
+                      Remove
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+      <div className="mt-4 flex justify-between items-center">
+        <p className="text-sm text-gray-600">
+          Showing 1 to {configs.length} of {configs.length} entries
+        </p>
+        <div className="flex space-x-2">
+          <Button variant="outline" size="sm">
+            1
+          </Button>
+          <Button variant="outline" size="sm" disabled>
+            2
+          </Button>
+          <Button variant="outline" size="sm" disabled>
+            3
+          </Button>
+        </div>
+      </div>
+      <div className="mt-4">
+        <h2 className="text-xl font-inter">Logs</h2>
+        <pre className="bg-gray-200 p-2 rounded max-h-60 overflow-auto">
+          {logs.map((log, index) => (
+            <div key={index}>{log}</div>
+          ))}
+        </pre>
+      </div>
+    </main>
   );
 };
 
