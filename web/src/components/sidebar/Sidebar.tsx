@@ -25,6 +25,7 @@ const Sidebar = () => {
   const addConfig = () => {
     if (newConfigPath) {
       const newConfig: ConfigEntry = {
+        id: "",
         name: "",
         description: "",
         path: newConfigPath,
