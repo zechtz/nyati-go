@@ -124,6 +124,15 @@ By default, this will start the server on port 8080 and serve the UI at:
 
 ```bash
 http://localhost:8080
+
+### Default Login Credentials
+
+The Web UI includes authentication to secure your deployments. Use the following default credentials:
+
+- **Email**: `admin@example.com`
+- **Password**: `secret`
+
+⚠️ **Important**: Change these credentials after first login for security purposes.
 ```
 
 The React frontend is embedded at compile time using Go’s embed package — no external files or dependencies are required to serve the UI.
