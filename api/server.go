@@ -263,7 +263,8 @@ func (s *Server) handleSaveConfigs(w http.ResponseWriter, r *http.Request) {
 
 	var entry ConfigEntry
 	if err := json.NewDecoder(r.Body).Decode(&entry); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		log.Printf("JSON decode error: %v", err)
+		http.Error(w, fmt.Sprintf("Invalid request body: %v", err), http.StatusBadRequest)
 		return
 	}
 

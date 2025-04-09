@@ -147,7 +147,12 @@ const App: React.FC = () => {
     const config = configs[index];
     setLogs((prevLogs) => [...prevLogs, `Saving config: ${config.path}`]);
     try {
-      await axios.post("/api/configs", config);
+      const payload = {
+        ...config,
+        id: null,
+      };
+
+      await axios.post("/api/configs", payload);
       toast.success("Config saved successfully!");
       fetchConfigs();
     } catch (error) {

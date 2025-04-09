@@ -17,12 +17,12 @@ var ConfigFilePath = "configs.json"
 //   - Description: Optional description of what this config does.
 //   - Path: The local or remote path the config points to.
 type ConfigEntry struct {
-	ID          int    `json:"id"`          // Unique identifier for the configuration entry
-	Name        string `json:"name"`        // Display name of the configuration
-	Description string `json:"description"` // Description of the configuration's purpose
-	Path        string `json:"path"`        // File path or resource reference
-	Status      string `json:"status"`      // Status of the configuration - Note the corrected JSON tag
-	UserID      int    `json:"user_id"`     // ID of the user who created this config
+	ID          int    `json:"id,omitempty"`      // Add omitempty to the id field
+	Name        string `json:"name"`              // Display name of the configuration
+	Description string `json:"description"`       // Description of the configuration's purpose
+	Path        string `json:"path"`              // File path or resource reference
+	Status      string `json:"status"`            // Status of the configuration - Note the corrected JSON tag
+	UserID      int    `json:"user_id,omitempty"` // ID of the user who created this config
 }
 
 // EnsureConfigsFile checks if the file defined by ConfigFilePath exists on disk.
