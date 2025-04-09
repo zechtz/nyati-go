@@ -73,6 +73,9 @@ Usage examples:
 		},
 	}
 
+	// Add database migration commands
+	setupMigrationCommands(rootCmd)
+
 	// Define supported flags
 	rootCmd.Flags().StringVarP(&cfgFile, "config", "c", "", "Path to config file (default: nyati.yaml or nyati.yml in current directory)")
 	rootCmd.Flags().StringVar(&deployHost, "deploy", "", "Host to deploy tasks on (e.g., 'all' or 'server1')")
