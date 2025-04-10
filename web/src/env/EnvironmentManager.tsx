@@ -50,6 +50,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 
 // Define types
 interface Environment {
+  id: number;
   name: string;
   description: string;
   is_current: boolean;
@@ -66,7 +67,7 @@ interface Variable {
 const EnvironmentManager: React.FC = () => {
   // State
   const [environments, setEnvironments] = useState<Environment[]>([]);
-  const [currentEnv, setCurrentEnv] = useState<string>("");
+  const [currentEnv, setCurrentEnv] = useState<Environment>({} as Environment);
   const [variables, setVariables] = useState<Variable[]>([]);
   const [encryptionKey, setEncryptionKey] = useState<string>("");
   const [showSecrets, setShowSecrets] = useState<boolean>(false);
@@ -97,14 +98,20 @@ const EnvironmentManager: React.FC = () => {
     try {
       const response = await axios.get("/api/env/list");
 
-      console.log("environments", response);
+      // console.log("environments", response.data);
+      setEnvironments(response.data.data || []);
 
-      setEnvironments(response.data);
+      let current;
 
       // Set current environment
-      const current = response.data.find((env: Environment) => env.is_current);
+      if (Array.isArray(response.data.data)) {
+        current = response.data.data.find((env: Environment) => env.is_current);
+      }
       if (current) {
-        setCurrentEnv(current.name);
+        setCurrentEnv((prev) => ({
+          ...prev,
+          ...current,
+        }));
       }
     } catch (error) {
       console.error("Failed to fetch environments:", error);
@@ -115,16 +122,27 @@ const EnvironmentManager: React.FC = () => {
   };
 
   // Fetch variables for an environment
-  const fetchVariables = async (envName: string) => {
+  const fetchVariables = async (env: Environment) => {
+    if (!env?.id) {
+      console.warn(
+        "fetchVariables called without a valid environment ID:",
+        env,
+      );
+      return;
+    }
+
+    const { name: envName, id } = env;
     setIsLoading(true);
     try {
       const headers: Record<string, string> = {};
-      if (showSecrets && encryptionKey) {
+      const shouldShowSecrets = showSecrets && encryptionKey;
+
+      if (shouldShowSecrets) {
         headers["X-Encryption-Key"] = encryptionKey;
       }
 
       const response = await axios.get(
-        `/api/env/vars/${envName}?show_secrets=${showSecrets}`,
+        `/api/env/vars/${id}?show_secrets=${shouldShowSecrets}`,
         { headers },
       );
       setVariables(response.data);
@@ -161,23 +179,28 @@ const EnvironmentManager: React.FC = () => {
   };
 
   // Switch to a different environment
-  const switchEnvironment = async (envName: string) => {
+  const switchEnvironment = async (environment: Environment) => {
+    const { id, name } = environment;
+
     try {
-      await axios.post(`/api/env/switch/${envName}`);
-      setCurrentEnv(envName);
+      await axios.post(`/api/env/switch/${id}`);
+      setCurrentEnv((prev) => ({
+        ...prev,
+        environment,
+      }));
 
       // Update environment list to reflect current env
       setEnvironments((prevEnvs) =>
         prevEnvs.map((env) => ({
           ...env,
-          is_current: env.name === envName,
+          is_current: env.name === name,
         })),
       );
 
-      toast.success(`Switched to environment "${envName}"`);
-      fetchVariables(envName);
+      toast.success(`Switched to environment "${name}"`);
+      fetchVariables(environment);
     } catch (error) {
-      console.error(`Failed to switch to environment ${envName}:`, error);
+      console.error(`Failed to switch to environment ${name}:`, error);
       toast.error("Failed to switch environment");
     }
   };
@@ -198,15 +221,15 @@ const EnvironmentManager: React.FC = () => {
       toast.success(`Environment "${envName}" deleted successfully`);
 
       // If we deleted the current environment, reset
-      if (currentEnv === envName) {
+      if (currentEnv.name === envName) {
         const remainingEnvs = environments.filter(
           (env) => env.name !== envName,
         );
         if (remainingEnvs.length > 0) {
-          setCurrentEnv(remainingEnvs[0].name);
-          fetchVariables(remainingEnvs[0].name);
+          setCurrentEnv(remainingEnvs[0]);
+          fetchVariables(remainingEnvs[0]);
         } else {
-          setCurrentEnv("");
+          setCurrentEnv({} as Environment);
           setVariables([]);
         }
       }
@@ -235,7 +258,7 @@ const EnvironmentManager: React.FC = () => {
 
     try {
       await axios.post(
-        `/api/env/vars/${currentEnv}`,
+        `/api/env/vars/${currentEnv.id}`,
         {
           key: newVarKey,
           value: newVarValue,
@@ -264,7 +287,7 @@ const EnvironmentManager: React.FC = () => {
     }
 
     try {
-      await axios.delete(`/api/env/vars/${currentEnv}/${key}`);
+      await axios.delete(`/api/env/vars/${currentEnv.id}/${key}`);
       toast.success(`Variable "${key}" deleted successfully`);
       fetchVariables(currentEnv);
     } catch (error) {
@@ -307,6 +330,7 @@ const EnvironmentManager: React.FC = () => {
     const asSecrets = window.confirm("Import as encrypted secrets?");
 
     const headers: Record<string, string> = {};
+
     if (asSecrets && encryptionKey) {
       headers["X-Encryption-Key"] = encryptionKey;
     } else if (asSecrets && !encryptionKey) {
@@ -340,6 +364,11 @@ const EnvironmentManager: React.FC = () => {
       const key = prompt("Enter encryption key to view secrets");
       if (!key) return;
       setEncryptionKey(key);
+
+      // Important: wait until the key is set before fetching
+      setShowSecrets(true);
+      setTimeout(() => fetchVariables(currentEnv), 0);
+      return;
     }
 
     setShowSecrets(!showSecrets);
@@ -446,7 +475,7 @@ const EnvironmentManager: React.FC = () => {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => switchEnvironment(env.name)}
+                            onClick={() => switchEnvironment(env)}
                           >
                             Use
                           </Button>
@@ -464,7 +493,7 @@ const EnvironmentManager: React.FC = () => {
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem
-                              onClick={() => switchEnvironment(env.name)}
+                              onClick={() => switchEnvironment(env)}
                               disabled={env.is_current}
                             >
                               <Check className="h-4 w-4 mr-2" />
@@ -493,7 +522,7 @@ const EnvironmentManager: React.FC = () => {
             <div>
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-semibold">
-                  Variables for {currentEnv}
+                  Variables for {currentEnv.name}
                 </h3>
                 <div className="flex space-x-2">
                   <Button
@@ -543,7 +572,8 @@ const EnvironmentManager: React.FC = () => {
                       <DialogHeader>
                         <DialogTitle>Add Variable</DialogTitle>
                         <DialogDescription>
-                          Add a new variable to the {currentEnv} environment
+                          Add a new variable to the {currentEnv.name}{" "}
+                          environment
                         </DialogDescription>
                       </DialogHeader>
                       <div className="space-y-4 py-4">
