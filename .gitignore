@@ -9,3 +9,4 @@ configs.json
 nyatictl.log
 github.properties
 nyatictl.db
+nyati.env.json
