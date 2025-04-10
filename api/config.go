@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+
+	"github.com/gorilla/mux"
 )
 
 // ConfigFilePath defines the path used to read/write configuration entries.
@@ -126,6 +128,12 @@ func SaveConfig(db *sql.DB, config ConfigEntry) error {
 	return nil
 }
 
+func (s *Server) RegisterConfigRoutes(r *mux.Router) {
+	r.HandleFunc("/configs", s.handleGetConfigs).Methods("GET")
+	r.HandleFunc("/configs", s.handleSaveConfigs).Methods("POST")
+	r.HandleFunc("/config-details", s.handleConfigDetails).Methods("GET")
+}
+
 // SaveConfigs saves multiple configuration entries to the database
 func SaveConfigs(db *sql.DB, configs []ConfigEntry) error {
 	for _, config := range configs {
@@ -134,4 +142,17 @@ func SaveConfigs(db *sql.DB, configs []ConfigEntry) error {
 		}
 	}
 	return nil
+}
+
+// GetConfigName retrieves the name of a config from its path
+func GetConfigName(configs []ConfigEntry, path string) string {
+	for _, cfg := range configs {
+		if cfg.Path == path {
+			if cfg.Name != "" {
+				return cfg.Name
+			}
+			return path // Return path if name is empty
+		}
+	}
+	return path // Return path if config not found
 }
