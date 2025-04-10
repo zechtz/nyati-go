@@ -190,15 +190,19 @@ func (s *Server) Start(port string) error {
 	api.Use(AuthMiddleware)
 
 	// Add your protected routes to the api subrouter
-	api.HandleFunc("/configs", s.handleGetConfigs).Methods("GET")
-	api.HandleFunc("/configs", s.handleSaveConfigs).Methods("POST")
-	api.HandleFunc("/config-details", s.handleConfigDetails).Methods("GET")
+
 	api.HandleFunc("/deploy", s.handleDeploy).Methods("POST")
 	api.HandleFunc("/task", s.handleExecuteTask).Methods("POST")
 	api.HandleFunc("/refresh-token", s.HandleRefreshToken).Methods("POST")
 
+	// Register the ConfigRoutes routes to the protected API subrouter
+	s.RegisterConfigRoutes(api)
+
 	// Register the RegisterBlueprint routes to the protected API subrouter
 	s.RegisterBlueprintRoutes(api)
+
+	// Register the RegisterBlueprint routes to the protected API subrouter
+	s.RegisterWebhookRoutes(api)
 
 	// Register the sandbox routes to the protected API subrouter
 	s.RegisterSandboxRoutes(api)
@@ -251,9 +255,9 @@ func (s *Server) handleGetConfigs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Log the config entries
-	for _, cfg := range configs {
-		log.Printf("Config Entry: %s, Path: %s, Status: %s", cfg.Name, cfg.Path, cfg.Status)
-	}
+	// for _, cfg := range configs {
+	// 	log.Printf("Config Entry: %s, Path: %s, Status: %s", cfg.Name, cfg.Path, cfg.Status)
+	// }
 
 	s.configs = configs
 
@@ -480,16 +484,62 @@ func (s *Server) handleExecuteTask(w http.ResponseWriter, r *http.Request) {
 			close(logChan)
 			s.logLock.Unlock()
 		}()
-
 		cfg, err := config.Load(req.ConfigPath, "0.1.2")
 		if err != nil {
 			logger.Log(fmt.Sprintf("Error: %v", err))
+
+			// Trigger webhooks for task failure
+			payload := WebhookPayload{
+				Event:      "task",
+				Action:     "execute",
+				Status:     "error",
+				Timestamp:  time.Now(),
+				ConfigPath: req.ConfigPath,
+				TaskName:   req.TaskName,
+				Host:       req.Host,
+				UserID:     userID,
+				Data: map[string]any{
+					"error": err.Error(),
+				},
+			}
+			TriggerWebhooks(s.db, "task", payload)
 			return
 		}
-
 		args := []string{"deploy", req.Host}
 		if err := cli.Run(cfg, args, req.TaskName, false, true); err != nil {
 			logger.Log(fmt.Sprintf("Error: %v", err))
+
+			// Trigger webhooks for task failure
+			payload := WebhookPayload{
+				Event:      "task",
+				Action:     "execute",
+				Status:     "error",
+				Timestamp:  time.Now(),
+				ConfigPath: req.ConfigPath,
+				TaskName:   req.TaskName,
+				Host:       req.Host,
+				UserID:     userID,
+				Data: map[string]any{
+					"error": err.Error(),
+				},
+			}
+			TriggerWebhooks(s.db, "task", payload)
+		} else {
+			// Trigger webhooks for task success
+			payload := WebhookPayload{
+				Event:      "task",
+				Action:     "execute",
+				Status:     "success",
+				Timestamp:  time.Now(),
+				ConfigPath: req.ConfigPath,
+				TaskName:   req.TaskName,
+				Host:       req.Host,
+				UserID:     userID,
+				Data: map[string]any{
+					"config_name": getConfigName(s.configs, req.ConfigPath),
+				},
+			}
+			TriggerWebhooks(s.db, "task", payload)
 		}
 	}()
 
