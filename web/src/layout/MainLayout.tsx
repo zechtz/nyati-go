@@ -13,6 +13,8 @@ import {
   Plus,
   Settings,
   Settings2,
+  Codesandbox,
+  Container,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -208,6 +210,32 @@ const MainLayout = () => {
           >
             <DatabaseZap className="h-5 w-5" />
             <span className="ml-2">Blueprints</span>
+          </NavLink>
+
+          <NavLink
+            to="/sandbox"
+            className={({ isActive }) =>
+              `flex items-center p-2 rounded ${
+                isActive ? "bg-primary-500" : "hover:bg-primary-600"
+              }`
+            }
+            end
+          >
+            <Codesandbox className="h-5 w-5" />
+            <span className="ml-2">Sandbox</span>
+          </NavLink>
+
+          <NavLink
+            to="/environments"
+            className={({ isActive }) =>
+              `flex items-center p-2 rounded ${
+                isActive ? "bg-primary-500" : "hover:bg-primary-600"
+              }`
+            }
+            end
+          >
+            <Container className="h-5 w-5" />
+            <span className="ml-2">Environments</span>
           </NavLink>
 
           <div>
