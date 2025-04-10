@@ -4,6 +4,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -31,13 +32,16 @@ var (
 
 // Environment represents a collection of environment variables
 type Environment struct {
-	Name        string            `json:"name"`        // Environment name (e.g., "production", "staging")
-	Description string            `json:"description"` // Description of the environment
-	Variables   map[string]string `json:"variables"`   // Plain text variables
-	Secrets     map[string]string `json:"secrets"`     // Encrypted sensitive values
+	ID          int               `json:"id,omitempty"` // Database ID
+	Name        string            `json:"name"`         // Environment name (e.g., "production", "staging")
+	Description string            `json:"description"`  // Description of the environment
+	Variables   map[string]string `json:"variables"`    // Plain text variables
+	Secrets     map[string]string `json:"secrets"`      // Encrypted sensitive values
 	mu          sync.RWMutex      // For concurrent access safety
 	encryptKey  []byte            // Encryption key (not serialized)
 	FilePath    string            // Path to the environment file
+	UserID      int               `json:"user_id"` // User ID associated with the environment
+	IsCurrent   bool              `json:"is_current"`
 }
 
 // EnvironmentFile represents the structure of the environment file
@@ -202,46 +206,218 @@ func LoadEnvironmentFile(FilePath string) (*EnvironmentFile, error) {
 }
 
 // SaveEnvironmentFile saves the environment file to disk
-func SaveEnvironmentFile(envFile *EnvironmentFile, FilePath string) error {
+func SaveEnvironmentFile(envFile *EnvironmentFile, filePath string) error {
+	// Handle empty file path by using the default or existing path
+	if filePath == "" {
+		// If environments exist, use the FilePath from the first environment
+		if len(envFile.Environments) > 0 && envFile.Environments[0].FilePath != "" {
+			filePath = envFile.Environments[0].FilePath
+		} else {
+			// Otherwise use the default path
+			filePath = DefaultEnvFile
+		}
+	}
+
 	data, err := json.MarshalIndent(envFile, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal environment file: %v", err)
 	}
 
-	dir := filepath.Dir(FilePath)
+	dir := filepath.Dir(filePath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory: %v", err)
 	}
 
 	// Use restricted permissions for security
-	return os.WriteFile(FilePath, data, 0600)
+	return os.WriteFile(filePath, data, 0600)
 }
 
-// GetEnvironment returns the environment with the given name
-func GetEnvironment(envFile *EnvironmentFile, name string) (*Environment, error) {
-	for _, env := range envFile.Environments {
-		if env.Name == name {
-			return env, nil
+// GetEnvironment loads an environment from the database
+func GetEnvironment(db *sql.DB, id int) (*Environment, error) {
+	env := &Environment{
+		Variables: make(map[string]string),
+		Secrets:   make(map[string]string),
+	}
+
+	// Get environment info
+	err := db.QueryRow("SELECT id, name, description, is_current, user_id FROM environments WHERE id = ?", id).
+		Scan(&env.ID, &env.Name, &env.Description, &env.IsCurrent, &env.UserID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Load variables
+	rows, err := db.Query("SELECT key, value, is_secret, encrypted_value FROM environment_variables WHERE environment_id = ?", id)
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	for rows.Next() {
+		var key, value, encValue string
+		var isSecret bool
+
+		if err := rows.Scan(&key, &value, &isSecret, &encValue); err != nil {
+			return nil, err
+		}
+
+		if isSecret {
+			env.Secrets[key] = encValue
+		} else {
+			env.Variables[key] = value
 		}
 	}
 
-	return nil, fmt.Errorf("environment %s not found", name)
+	return env, nil
 }
 
-// GetCurrentEnvironment returns the current active environment
-func GetCurrentEnvironment(envFile *EnvironmentFile) (*Environment, error) {
-	return GetEnvironment(envFile, envFile.CurrentEnv)
+func GetEnvironments(db *sql.DB, userID int) ([]*Environment, error) {
+	// Query for all environments for this user
+	rows, err := db.Query("SELECT id, name, description, is_current, user_id FROM environments WHERE user_id = ?", userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var environments []*Environment
+
+	for rows.Next() {
+		env := &Environment{
+			Variables: make(map[string]string),
+			Secrets:   make(map[string]string),
+		}
+
+		if err := rows.Scan(&env.ID, &env.Name, &env.Description, &env.IsCurrent, &env.UserID); err != nil {
+			return nil, err
+		}
+
+		environments = append(environments, env)
+	}
+
+	// Load variables for each environment
+	for _, env := range environments {
+		varRows, err := db.Query("SELECT key, value, is_secret, encrypted_value FROM environment_variables WHERE environment_id = ?", env.ID)
+		if err != nil {
+			return nil, err
+		}
+
+		for varRows.Next() {
+			var key, value, encValue string
+			var isSecret bool
+
+			if err := varRows.Scan(&key, &value, &isSecret, &encValue); err != nil {
+				varRows.Close()
+				return nil, err
+			}
+
+			if isSecret {
+				env.Secrets[key] = encValue
+			} else {
+				env.Variables[key] = value
+			}
+		}
+
+		varRows.Close()
+	}
+
+	return environments, nil
+}
+
+func GetActiveEnvironment(db *sql.DB, userID int) (*Environment, error) {
+	env := &Environment{
+		Variables: make(map[string]string),
+		Secrets:   make(map[string]string),
+	}
+
+	// Get the active environment for this user
+	err := db.QueryRow(`
+        SELECT id, name, description, is_current, user_id 
+        FROM environments 
+        WHERE user_id = ? AND is_current = 1 
+        LIMIT 1`, userID).
+		Scan(&env.ID, &env.Name, &env.Description, &env.IsCurrent, &env.UserID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("no active environment found for user %d", userID)
+		}
+		return nil, err
+	}
+
+	// Load variables
+	rows, err := db.Query("SELECT key, value, is_secret, encrypted_value FROM environment_variables WHERE environment_id = ?", env.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var key, value, encValue string
+		var isSecret bool
+
+		if err := rows.Scan(&key, &value, &isSecret, &encValue); err != nil {
+			return nil, err
+		}
+
+		if isSecret {
+			env.Secrets[key] = encValue
+		} else {
+			env.Variables[key] = value
+		}
+	}
+
+	return env, nil
+}
+
+func SetActiveEnvironment(db *sql.DB, id int, userID int) (*Environment, error) {
+	// Begin transaction
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %v", err)
+	}
+
+	// Defer rollback in case of error
+	defer tx.Rollback()
+
+	// First check if the environment exists and belongs to this user
+	var envExists bool
+	err = tx.QueryRow("SELECT 1 FROM environments WHERE id = ? AND user_id = ?", id, userID).Scan(&envExists)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("environment with ID %d not found for user %d", id, userID)
+		}
+		return nil, err
+	}
+
+	// Unset any currently active environment for this user
+	_, err = tx.Exec("UPDATE environments SET is_current = 0 WHERE user_id = ?", userID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set this environment as active
+	_, err = tx.Exec("UPDATE environments SET is_current = 1 WHERE id = ?", id)
+	if err != nil {
+		return nil, err
+	}
+
+	// Commit the transaction
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %v", err)
+	}
+
+	// Return the environment
+	return GetEnvironment(db, id)
+}
+
+// GetCurrentEnvironment returns the current active environment for a user
+func GetCurrentEnvironment(db *sql.DB, userID int) (*Environment, error) {
+	return GetActiveEnvironment(db, userID)
 }
 
 // SetCurrentEnvironment sets the current active environment
-func SetCurrentEnvironment(envFile *EnvironmentFile, name string) error {
-	_, err := GetEnvironment(envFile, name)
-	if err != nil {
-		return err
-	}
-
-	envFile.CurrentEnv = name
-	return SaveEnvironmentFile(envFile, envFile.Environments[0].FilePath)
+func SetCurrentEnvironment(db *sql.DB, id int, userID int) (*Environment, error) {
+	return SetActiveEnvironment(db, id, userID)
 }
 
 // AddEnvironment adds a new environment to the file
@@ -382,4 +558,89 @@ func decrypt(encryptedText string, key []byte) (string, error) {
 	}
 
 	return string(plaintext), nil
+}
+
+// SaveEnvironment persists an environment to the database
+func SaveEnvironment(db *sql.DB, env *Environment) error {
+	// Begin a transaction for atomicity
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %v", err)
+	}
+
+	// Defer rollback in case of error - will be ignored if we commit successfully
+	defer tx.Rollback()
+
+	var result sql.Result
+	// If env has an ID, update it; otherwise insert a new one
+	if env.ID > 0 {
+		_, err = tx.Exec(`
+            UPDATE environments 
+            SET name = ?, description = ?, is_current = ?, user_id = ? 
+            WHERE id = ?`,
+			env.Name, env.Description, env.IsCurrent, env.UserID, env.ID)
+	} else {
+		result, err = tx.Exec(`
+            INSERT INTO environments (name, description, is_current, user_id) 
+            VALUES (?, ?, ?, ?)`,
+			env.Name, env.Description, env.IsCurrent, env.UserID)
+
+		if err == nil {
+			id, _ := result.LastInsertId()
+			env.ID = int(id)
+		}
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to save environment: %v", err)
+	}
+
+	// Save variables and secrets
+	if err := saveEnvironmentVariables(tx, env); err != nil {
+		return err
+	}
+
+	// Commit the transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %v", err)
+	}
+
+	return nil
+}
+
+// saveEnvironmentVariables is a helper function to save environment variables
+func saveEnvironmentVariables(tx *sql.Tx, env *Environment) error {
+	// First, delete existing variables for this environment
+	if env.ID > 0 {
+		_, err := tx.Exec("DELETE FROM environment_variables WHERE environment_id = ?", env.ID)
+		if err != nil {
+			return fmt.Errorf("failed to clear existing variables: %v", err)
+		}
+	}
+
+	// Insert regular variables
+	for key, value := range env.Variables {
+		_, err := tx.Exec(`
+            INSERT INTO environment_variables 
+            (environment_id, key, value, is_secret, encrypted_value) 
+            VALUES (?, ?, ?, ?, ?)`,
+			env.ID, key, value, false, "")
+		if err != nil {
+			return fmt.Errorf("failed to insert variable %s: %v", key, err)
+		}
+	}
+
+	// Insert secrets
+	for key, encValue := range env.Secrets {
+		_, err := tx.Exec(`
+            INSERT INTO environment_variables 
+            (environment_id, key, value, is_secret, encrypted_value) 
+            VALUES (?, ?, ?, ?, ?)`,
+			env.ID, key, "", true, encValue)
+		if err != nil {
+			return fmt.Errorf("failed to insert secret %s: %v", key, err)
+		}
+	}
+
+	return nil
 }
