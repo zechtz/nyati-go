@@ -15,6 +15,7 @@ import {
   Settings2,
   Codesandbox,
   Container,
+  ExternalLink,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -237,7 +238,6 @@ const MainLayout = () => {
             <Container className="h-5 w-5" />
             <span className="ml-2">Environments</span>
           </NavLink>
-
           <div>
             <button
               onClick={toggleSettings}
@@ -321,6 +321,17 @@ const MainLayout = () => {
           >
             <Settings2 className="h-5 w-5" />
             <span className="ml-2">Manage Configs</span>
+          </NavLink>
+          <NavLink
+            to="/webhooks"
+            className={({ isActive }) =>
+              `flex items-center p-2 rounded ${
+                isActive ? "bg-primary-500" : "hover:bg-primary-600"
+              } transition-colors duration-200`
+            }
+          >
+            <ExternalLink className="h-5 w-5" />
+            <span className="ml-2">Webhooks</span>
           </NavLink>
         </nav>
 

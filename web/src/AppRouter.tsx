@@ -15,6 +15,7 @@ import BlueprintForm from "./blueprints/BlueprintForm";
 import BlueprintUse from "./blueprints/BlueprintUse";
 import SandboxSimulator from "./sandbox/SandboxSimulator";
 import EnvironmentsPage from "./env/Environments";
+import Webhooks from "./Webhooks";
 
 // Protected route component
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -51,6 +52,7 @@ const AppRouter = () => {
           <Route path="blueprints/edit/:id" element={<BlueprintForm />} />
           <Route path="blueprints/use/:id" element={<BlueprintUse />} />
           <Route path="sandbox" element={<SandboxSimulator />} />
+          <Route path="webhooks" element={<Webhooks />} />
           <Route path="configs" element={<ConfigsPage />} />
           <Route path="configs/:configPath" element={<ConfigsPage />} />
           <Route path="environments" element={<EnvironmentsPage />} />
