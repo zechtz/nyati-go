@@ -197,6 +197,8 @@ func (s *Server) Start(port string) error {
 	api.HandleFunc("/task", s.handleExecuteTask).Methods("POST")
 	api.HandleFunc("/refresh-token", s.HandleRefreshToken).Methods("POST")
 
+	s.RegisterBlueprintRoutes(api)
+
 	// WebSocket endpoint for real-time logs
 	r.HandleFunc("/ws/logs/{sessionID}", s.handleLogsWebSocket)
 
