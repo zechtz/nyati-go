@@ -10,3 +10,4 @@ nyatictl.log
 github.properties
 nyatictl.db
 nyati.env.json
+cli/env.go.back
