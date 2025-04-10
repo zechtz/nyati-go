@@ -66,13 +66,6 @@ Usage examples:
 				return err
 			}
 
-			// Apply environment variables if specified
-			if envName != "" {
-				if err := applyEnvironment(cfg, envName, envFile); err != nil {
-					return fmt.Errorf("failed to apply environment variables: %v", err)
-				}
-			}
-
 			// Override args if deploy flag is set
 			if deployHost != "" {
 				args = []string{"deploy", deployHost}
@@ -86,9 +79,6 @@ Usage examples:
 	// Add database migration commands
 	setupMigrationCommands(rootCmd)
 
-	// Add environment management commands
-	setupEnvCommands(rootCmd)
-
 	// Define supported flags
 	rootCmd.Flags().StringVarP(&cfgFile, "config", "c", "", "Path to config file (default: nyati.yaml or nyati.yml in current directory)")
 	rootCmd.Flags().StringVar(&deployHost, "deploy", "", "Host to deploy tasks on (e.g., 'all' or 'server1')")
@@ -101,42 +91,6 @@ Usage examples:
 
 	// Start CLI
 	return rootCmd.Execute()
-}
-
-// applyEnvironment loads environment variables from the specified environment
-// and applies them to the configuration by replacing template vars
-func applyEnvironment(cfg *config.Config, envName, envFile string) error {
-	// Load the environment file
-	envFileObj, err := env.LoadEnvironmentFile(envFile)
-	if err != nil {
-		return fmt.Errorf("failed to load environment file: %v", err)
-	}
-
-	// Get the specified environment
-	environment, err := env.GetEnvironment(envFileObj, envName)
-	if err != nil {
-		return fmt.Errorf("environment '%s' not found: %v", envName, err)
-	}
-
-	// Get all variables as a map
-	vars, err := environment.AsMap()
-	if err != nil {
-		return fmt.Errorf("failed to get environment variables: %v", err)
-	}
-
-	// Add variables to config.Params
-	if cfg.Params == nil {
-		cfg.Params = make(map[string]string)
-	}
-
-	for k, v := range vars {
-		// Don't override existing parameters unless they're templated
-		if _, exists := cfg.Params[k]; !exists {
-			cfg.Params[k] = v
-		}
-	}
-
-	return nil
 }
 
 // Run handles the core task execution workflow.
