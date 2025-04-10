@@ -197,7 +197,14 @@ func (s *Server) Start(port string) error {
 	api.HandleFunc("/task", s.handleExecuteTask).Methods("POST")
 	api.HandleFunc("/refresh-token", s.HandleRefreshToken).Methods("POST")
 
+	// Register the RegisterBlueprint routes to the protected API subrouter
 	s.RegisterBlueprintRoutes(api)
+
+	// Register the sandbox routes to the protected API subrouter
+	s.RegisterSandboxRoutes(api)
+
+	// Register the env routes to the protected API subrouter
+	s.InitEnvRoutes(api)
 
 	// WebSocket endpoint for real-time logs
 	r.HandleFunc("/ws/logs/{sessionID}", s.handleLogsWebSocket)

@@ -33,6 +33,7 @@ type Host struct {
 
 // Task defines a command to run on a host, along with its metadata and dependencies.
 type Task struct {
+	ID        string   `mapstructure:"name,omitempty"`       // Unique identifier for the task
 	Name      string   `mapstructure:"name"`                 // Unique identifier for the task
 	Cmd       string   `mapstructure:"cmd"`                  // Shell command to run
 	Dir       string   `mapstructure:"dir,omitempty"`        // Optional working directory for the command
