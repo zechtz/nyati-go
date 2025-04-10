@@ -129,10 +129,6 @@ const MainLayout = () => {
     setIsSettingsOpen(!isSettingsOpen);
   };
 
-  const toggleBlueprints = () => {
-    setIsBlueprintsOpen(!isBlueprintsOpen);
-  };
-
   const addConfig = () => {
     if (newConfigPath) {
       const newConfig: ConfigEntry = {
@@ -201,46 +197,18 @@ const MainLayout = () => {
             <span className="ml-2">Dashboard</span>
           </NavLink>
 
-          <div>
-            <button
-              onClick={toggleBlueprints}
-              className={`flex items-center p-2 rounded ${
-                location.pathname.startsWith("/deployments")
-                  ? "bg-primary-500"
-                  : "hover:bg-primary-600"
-              } w-full text-left transition-colors duration-200`}
-            >
-              <DatabaseZap className="h-5 w-5" />
-              <span className="ml-2">Deployments</span>
-              <div className="ml-auto">
-                {isBlueprintsOpen ? (
-                  <ChevronDown className="h-5 w-5 transition-transform duration-200" />
-                ) : (
-                  <ChevronRight className="h-5 w-5 transition-transform duration-200" />
-                )}
-              </div>
-            </button>
-            <div
-              ref={blueprintsMenuRef}
-              className="overflow-hidden transition-all ease-in-out pl-6 space-y-1"
-              style={{
-                maxHeight: "0",
-                opacity: isBlueprintsOpen ? 1 : 0,
-                transitionDuration: `${ANIMATION_DURATION}ms`,
-              }}
-            >
-              <NavLink
-                to="/deployments"
-                className={({ isActive }) =>
-                  `block p-2 rounded ${
-                    isActive ? "bg-primary-500" : "hover:bg-primary-600"
-                  } transition-colors duration-200`
-                }
-              >
-                List Deployments
-              </NavLink>
-            </div>
-          </div>
+          <NavLink
+            to="/blueprints"
+            className={({ isActive }) =>
+              `flex items-center p-2 rounded ${
+                isActive ? "bg-primary-500" : "hover:bg-primary-600"
+              }`
+            }
+            end
+          >
+            <DatabaseZap className="h-5 w-5" />
+            <span className="ml-2">Blueprints</span>
+          </NavLink>
 
           <div>
             <button
