@@ -4,37 +4,31 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/gorilla/mux"
 	"github.com/zechtz/nyatictl/api/response"
 	"github.com/zechtz/nyatictl/env"
 )
 
-// Environment API endpoints for web UI
-// These endpoints enable the web UI to manage environments and variables
-
 // InitEnvRoutes sets up the environment-related API routes
 func (s *Server) InitEnvRoutes(r *mux.Router) {
 	// Register environment management endpoints
-	// Environment management endpoints
-
 	api := r.PathPrefix("/env").Subrouter()
+	api.Use(AuthMiddleware)
 
+	// Environment management endpoints
 	api.HandleFunc("/list", s.handleListEnvironments).Methods("GET")
 	api.HandleFunc("/current", s.handleGetCurrentEnvironment).Methods("GET")
-	api.HandleFunc("/switch/{name}", s.handleSwitchEnvironment).Methods("POST")
+	api.HandleFunc("/switch/{id}", s.handleSwitchEnvironment).Methods("POST")
 	api.HandleFunc("/create", s.handleCreateEnvironment).Methods("POST")
-	api.HandleFunc("/delete/{name}", s.handleDeleteEnvironment).Methods("DELETE")
+	api.HandleFunc("/delete/{id}", s.handleDeleteEnvironment).Methods("DELETE")
 
 	// Variable management endpoints
-	api.HandleFunc("/vars/{env}", s.handleListVariables).Methods("GET")
-	api.HandleFunc("/vars/{env}", s.handleSetVariable).Methods("POST")
-	api.HandleFunc("/vars/{env}/{key}", s.handleGetVariable).Methods("GET")
-	api.HandleFunc("/vars/{env}/{key}", s.handleDeleteVariable).Methods("DELETE")
-
-	// Import/export endpoints
-	api.HandleFunc("/export/{env}", s.handleExportEnvironment).Methods("POST")
-	api.HandleFunc("/import/{env}", s.handleImportEnvironment).Methods("POST")
+	api.HandleFunc("/vars/{env_id}", s.handleListVariables).Methods("GET")
+	api.HandleFunc("/vars/{env_id}", s.handleSetVariable).Methods("POST")
+	api.HandleFunc("/vars/{env_id}/{key}", s.handleGetVariable).Methods("GET")
+	api.HandleFunc("/vars/{env_id}/{key}", s.handleDeleteVariable).Methods("DELETE")
 }
 
 // EnvironmentRequest represents a request to create or modify an environment
@@ -50,16 +44,26 @@ type VariableRequest struct {
 	IsSecret bool   `json:"is_secret"`
 }
 
-// handleListEnvironments returns a list of all environments
+// handleListEnvironments returns a list of all environments for the current user
 func (s *Server) handleListEnvironments(w http.ResponseWriter, r *http.Request) {
-	envFile, err := env.LoadEnvironmentFile("")
+	rw := response.NewWriter(w)
+
+	// Get user from context
+	claims, ok := GetUserFromContext(r)
+	if !ok {
+		rw.Unauthorized("Unauthorized")
+		return
+	}
+
+	environments, err := env.GetEnvironments(s.db, claims.UserID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to load environments: %v", err), http.StatusInternalServerError)
+		rw.InternalServerError(fmt.Sprintf("Failed to load environments: %v", err))
 		return
 	}
 
 	// Convert to a simpler structure for the API
 	type EnvInfo struct {
+		ID          int    `json:"id"`
 		Name        string `json:"name"`
 		Description string `json:"description"`
 		IsCurrent   bool   `json:"is_current"`
@@ -68,142 +72,203 @@ func (s *Server) handleListEnvironments(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var envs []EnvInfo
-	for _, e := range envFile.Environments {
+	for _, e := range environments {
 		envs = append(envs, EnvInfo{
+			ID:          e.ID,
 			Name:        e.Name,
 			Description: e.Description,
-			IsCurrent:   e.Name == envFile.CurrentEnv,
+			IsCurrent:   e.IsCurrent,
 			VarCount:    len(e.Variables),
 			SecretCount: len(e.Secrets),
 		})
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(envs)
+	rw.Success(envs)
 }
 
 // handleGetCurrentEnvironment returns the current active environment
 func (s *Server) handleGetCurrentEnvironment(w http.ResponseWriter, r *http.Request) {
-	envFile, err := env.LoadEnvironmentFile("")
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to load environments: %v", err), http.StatusInternalServerError)
+	rw := response.NewWriter(w)
+	// Get user from context
+	claims, ok := GetUserFromContext(r)
+	if !ok {
+		rw.Unauthorized("Unauthorized")
 		return
 	}
 
-	environment, err := env.GetCurrentEnvironment(envFile)
+	environment, err := env.GetCurrentEnvironment(s.db, claims.UserID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get current environment: %v", err), http.StatusInternalServerError)
+		rw.InternalServerError(fmt.Sprintf("Failed to get current environment: %v", err))
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	data := map[string]any{
+		"id":           environment.ID,
 		"name":         environment.Name,
 		"description":  environment.Description,
+		"is_current":   environment.IsCurrent,
 		"var_count":    len(environment.Variables),
 		"secret_count": len(environment.Secrets),
-	})
+	}
+
+	env, err := mapToEnvironment(data)
+	if err != nil {
+		rw.InternalServerError(err.Error())
+	}
+
+	rw.Success(env)
 }
 
 // handleSwitchEnvironment changes the current active environment
 func (s *Server) handleSwitchEnvironment(w http.ResponseWriter, r *http.Request) {
-	// Get the environment name from the URL
-	vars := mux.Vars(r)
-	name := vars["name"]
+	rw := response.NewWriter(w)
 
-	envFile, err := env.LoadEnvironmentFile("")
+	// Get user from context
+	claims, ok := GetUserFromContext(r)
+	if !ok {
+		rw.Unauthorized("Unauthorized")
+		return
+	}
+
+	// Get the environment ID from the URL
+	vars := mux.Vars(r)
+	idStr := vars["id"]
+	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to load environments: %v", err), http.StatusInternalServerError)
+		rw.BadRequest("Invalid environment ID: ")
 		return
 	}
 
 	// Switch to the specified environment
-	if err := env.SetCurrentEnvironment(envFile, name); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to switch environment: %v", err), http.StatusBadRequest)
+	environment, err := env.SetCurrentEnvironment(s.db, id, claims.UserID)
+	if err != nil {
+		rw.InternalServerError(fmt.Sprintf("Failed to switch environment: %v", err))
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"message": fmt.Sprintf("Switched to environment '%s'", name),
-	})
+	rw.Success(fmt.Sprintf("Switched to environment '%s'", environment.Name))
 }
 
 // handleCreateEnvironment creates a new environment
 func (s *Server) handleCreateEnvironment(w http.ResponseWriter, r *http.Request) {
+	rw := response.NewWriter(w)
+
+	// Get user from context
+	claims, ok := GetUserFromContext(r)
+	if !ok {
+		rw.Unauthorized("Unauthorized")
+		return
+	}
+
 	var req EnvironmentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		rw.BadRequest("Invalid request body")
 		return
 	}
 
 	if req.Name == "" {
-		http.Error(w, "Environment name is required", http.StatusBadRequest)
-		return
-	}
-
-	envFile, err := env.LoadEnvironmentFile("")
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to load environments: %v", err), http.StatusInternalServerError)
+		rw.BadRequest("Environment name is required")
 		return
 	}
 
 	// Create new environment
 	newEnv := env.NewEnvironment(req.Name, req.Description)
+	newEnv.UserID = claims.UserID
 
-	// Add to file
-	if err := env.AddEnvironment(envFile, newEnv); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to add environment: %v", err), http.StatusBadRequest)
+	// Save to database
+	if err := env.SaveEnvironment(s.db, newEnv); err != nil {
+		rw.InternalServerError(fmt.Sprintf("Failed to create environment: %v", err))
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"message": fmt.Sprintf("Environment '%s' created successfully", req.Name),
-	})
+	rw.Created(newEnv)
 }
 
 // handleDeleteEnvironment deletes an environment
 func (s *Server) handleDeleteEnvironment(w http.ResponseWriter, r *http.Request) {
-	// Get the environment name from the URL
+	rw := response.NewWriter(w)
+
+	// Get user from context
+	claims, ok := GetUserFromContext(r)
+	if !ok {
+		rw.Unauthorized("Unauthorized")
+		return
+	}
+
+	// Get the environment ID from the URL
 	vars := mux.Vars(r)
-	name := vars["name"]
-
-	envFile, err := env.LoadEnvironmentFile("")
+	idStr := vars["id"]
+	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to load environments: %v", err), http.StatusInternalServerError)
+		rw.BadRequest("Invalid environment ID")
 		return
 	}
 
-	// Delete the environment
-	if err := env.RemoveEnvironment(envFile, name); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to delete environment: %v", err), http.StatusBadRequest)
+	// First verify that this environment belongs to the user
+	environment, err := env.GetEnvironment(s.db, id)
+	if err != nil {
+		rw.NotFound(fmt.Sprintf("Environment not found: %v", err))
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"message": fmt.Sprintf("Environment '%s' deleted successfully", name),
-	})
+	if environment.UserID != claims.UserID {
+		rw.Forbidden("Unauthorized access to this environment")
+		return
+	}
+
+	// Cannot delete current environment
+	if environment.IsCurrent {
+		rw.Error(400, "Cannot delete the current active environment")
+		return
+	}
+
+	// Delete the environment - TODO: Add a DeleteEnvironment function to env package
+	_, err = s.db.Exec("DELETE FROM environment_variables WHERE environment_id = ?", id)
+	if err != nil {
+		rw.InternalServerError(fmt.Sprintf("Failed to delete environment variables: %v", err))
+		return
+	}
+
+	_, err = s.db.Exec("DELETE FROM environments WHERE id = ?", id)
+	if err != nil {
+		rw.InternalServerError(fmt.Sprintf("Failed to delete environment: %v", err))
+		return
+	}
+
+	rw.NoContent()
 }
 
 // handleListVariables returns all variables in an environment
 func (s *Server) handleListVariables(w http.ResponseWriter, r *http.Request) {
-	// Get the environment name from the URL
-	vars := mux.Vars(r)
-	name := vars["env"]
-	showSecrets := r.URL.Query().Get("show_secrets") == "true"
-
-	envFile, err := env.LoadEnvironmentFile("")
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to load environments: %v", err), http.StatusInternalServerError)
+	// Get user from context
+	claims, ok := GetUserFromContext(r)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
+	// Get the environment ID from the URL
+	vars := mux.Vars(r)
+	idStr := vars["env_id"]
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid environment ID", http.StatusBadRequest)
+		return
+	}
+
+	showSecrets := r.URL.Query().Get("show_secrets") == "true"
+
 	// Get the environment
-	environment, err := env.GetEnvironment(envFile, name)
+	environment, err := env.GetEnvironment(s.db, id)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Environment not found: %v", err), http.StatusNotFound)
+		return
+	}
+
+	// Verify user has access to this environment
+	if environment.UserID != claims.UserID {
+		http.Error(w, "Unauthorized access to this environment", http.StatusForbidden)
 		return
 	}
 
@@ -263,34 +328,43 @@ func (s *Server) handleListVariables(w http.ResponseWriter, r *http.Request) {
 
 // handleSetVariable sets a variable in an environment
 func (s *Server) handleSetVariable(w http.ResponseWriter, r *http.Request) {
-	rw := response.NewWriter(w)
+	// Get user from context
+	claims, ok := GetUserFromContext(r)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
-	// Get the environment name from the URL
+	// Get the environment ID from the URL
 	vars := mux.Vars(r)
-	name := vars["env"]
+	idStr := vars["env_id"]
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid environment ID", http.StatusBadRequest)
+		return
+	}
 
 	var req VariableRequest
-
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		rw.BadRequest("Invalid request body")
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	if req.Key == "" {
-		rw.BadRequest("Variable key is required")
-		return
-	}
-
-	envFile, err := env.LoadEnvironmentFile("")
-	if err != nil {
-		rw.InternalServerError(err.Error())
+		http.Error(w, "Variable key is required", http.StatusBadRequest)
 		return
 	}
 
 	// Get the environment
-	environment, err := env.GetEnvironment(envFile, name)
+	environment, err := env.GetEnvironment(s.db, id)
 	if err != nil {
-		rw.NotFound("Environment not found")
+		http.Error(w, fmt.Sprintf("Environment not found: %v", err), http.StatusNotFound)
+		return
+	}
+
+	// Verify user has access to this environment
+	if environment.UserID != claims.UserID {
+		http.Error(w, "Unauthorized access to this environment", http.StatusForbidden)
 		return
 	}
 
@@ -298,7 +372,7 @@ func (s *Server) handleSetVariable(w http.ResponseWriter, r *http.Request) {
 	if req.IsSecret {
 		key := r.Header.Get("X-Encryption-Key")
 		if key == "" {
-			rw.BadRequest("Encryption key required for secrets")
+			http.Error(w, "Encryption key required for secrets", http.StatusBadRequest)
 			return
 		}
 
@@ -307,36 +381,52 @@ func (s *Server) handleSetVariable(w http.ResponseWriter, r *http.Request) {
 
 	// Set the variable
 	if err := environment.Set(req.Key, req.Value, req.IsSecret); err != nil {
-		rw.InternalServerError(err.Error())
+		http.Error(w, fmt.Sprintf("Failed to set variable: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	// Save changes
-	if err := env.SaveEnvironmentFile(envFile, ""); err != nil {
-		rw.InternalServerError(err.Error())
+	if err := env.SaveEnvironment(s.db, environment); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to save environment: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	rw.Success(req.Key)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": fmt.Sprintf("Variable '%s' set successfully", req.Key),
+	})
 }
 
 // handleGetVariable gets a variable from an environment
 func (s *Server) handleGetVariable(w http.ResponseWriter, r *http.Request) {
-	// Get the environment and key from the URL
-	vars := mux.Vars(r)
-	name := vars["env"]
-	key := vars["key"]
-
-	envFile, err := env.LoadEnvironmentFile("")
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to load environments: %v", err), http.StatusInternalServerError)
+	// Get user from context
+	claims, ok := GetUserFromContext(r)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
+	// Get the environment ID and key from the URL
+	vars := mux.Vars(r)
+	idStr := vars["env_id"]
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid environment ID", http.StatusBadRequest)
+		return
+	}
+
+	key := vars["key"]
+
 	// Get the environment
-	environment, err := env.GetEnvironment(envFile, name)
+	environment, err := env.GetEnvironment(s.db, id)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Environment not found: %v", err), http.StatusNotFound)
+		return
+	}
+
+	// Verify user has access to this environment
+	if environment.UserID != claims.UserID {
+		http.Error(w, "Unauthorized access to this environment", http.StatusForbidden)
 		return
 	}
 
@@ -345,13 +435,13 @@ func (s *Server) handleGetVariable(w http.ResponseWriter, r *http.Request) {
 
 	// If it's a secret and we need a key
 	if isSecret && err == env.ErrNoEncryptionKey {
-		key := r.Header.Get("X-Encryption-Key")
-		if key == "" {
+		encKey := r.Header.Get("X-Encryption-Key")
+		if encKey == "" {
 			http.Error(w, "Encryption key required for secrets", http.StatusBadRequest)
 			return
 		}
 
-		environment.SetEncryptionKey(key)
+		environment.SetEncryptionKey(encKey)
 
 		// Try again with the key
 		value, isSecret, err = environment.Get(key)
@@ -377,21 +467,34 @@ func (s *Server) handleGetVariable(w http.ResponseWriter, r *http.Request) {
 
 // handleDeleteVariable deletes a variable from an environment
 func (s *Server) handleDeleteVariable(w http.ResponseWriter, r *http.Request) {
-	// Get the environment and key from the URL
-	vars := mux.Vars(r)
-	name := vars["env"]
-	key := vars["key"]
-
-	envFile, err := env.LoadEnvironmentFile("")
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to load environments: %v", err), http.StatusInternalServerError)
+	// Get user from context
+	claims, ok := GetUserFromContext(r)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
+	// Get the environment ID and key from the URL
+	vars := mux.Vars(r)
+	idStr := vars["env_id"]
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid environment ID", http.StatusBadRequest)
+		return
+	}
+
+	key := vars["key"]
+
 	// Get the environment
-	environment, err := env.GetEnvironment(envFile, name)
+	environment, err := env.GetEnvironment(s.db, id)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Environment not found: %v", err), http.StatusNotFound)
+		return
+	}
+
+	// Verify user has access to this environment
+	if environment.UserID != claims.UserID {
+		http.Error(w, "Unauthorized access to this environment", http.StatusForbidden)
 		return
 	}
 
@@ -399,7 +502,7 @@ func (s *Server) handleDeleteVariable(w http.ResponseWriter, r *http.Request) {
 	environment.Delete(key)
 
 	// Save changes
-	if err := env.SaveEnvironmentFile(envFile, ""); err != nil {
+	if err := env.SaveEnvironment(s.db, environment); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to save environment: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -410,117 +513,18 @@ func (s *Server) handleDeleteVariable(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleExportEnvironment exports an environment to a .env file
-func (s *Server) handleExportEnvironment(w http.ResponseWriter, r *http.Request) {
-	// Get the environment name from the URL
-	vars := mux.Vars(r)
-	name := vars["env"]
-
-	// Parse request for output path
-	type ExportRequest struct {
-		OutputPath string `json:"output_path"`
-	}
-
-	var req ExportRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	if req.OutputPath == "" {
-		req.OutputPath = ".env"
-	}
-
-	envFile, err := env.LoadEnvironmentFile("")
+func mapToEnvironment(data map[string]any) (*env.Environment, error) {
+	// Step 1: Marshal the map to JSON
+	jsonBytes, err := json.Marshal(data)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to load environments: %v", err), http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 
-	// Get the environment
-	environment, err := env.GetEnvironment(envFile, name)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Environment not found: %v", err), http.StatusNotFound)
-		return
+	// Step 2: Unmarshal JSON into the struct
+	var env env.Environment
+	if err := json.Unmarshal(jsonBytes, &env); err != nil {
+		return nil, err
 	}
 
-	// If there are secrets, we need an encryption key
-	if len(environment.Secrets) > 0 {
-		key := r.Header.Get("X-Encryption-Key")
-		if key == "" {
-			http.Error(w, "Encryption key required to export secrets", http.StatusBadRequest)
-			return
-		}
-
-		environment.SetEncryptionKey(key)
-	}
-
-	// Export the environment
-	if err := env.ExportDotenv(environment, req.OutputPath); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to export environment: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"message": fmt.Sprintf("Environment '%s' exported to %s", name, req.OutputPath),
-	})
-}
-
-// handleImportEnvironment imports variables from a .env file into an environment
-func (s *Server) handleImportEnvironment(w http.ResponseWriter, r *http.Request) {
-	// Get the environment name from the URL
-	vars := mux.Vars(r)
-	name := vars["env"]
-
-	// Parse request
-	type ImportRequest struct {
-		InputPath string `json:"input_path"`
-		AsSecrets bool   `json:"as_secrets"`
-	}
-
-	var req ImportRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	if req.InputPath == "" {
-		req.InputPath = ".env"
-	}
-
-	envFile, err := env.LoadEnvironmentFile("")
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to load environments: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	// Get the environment
-	environment, err := env.GetEnvironment(envFile, name)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Environment not found: %v", err), http.StatusNotFound)
-		return
-	}
-
-	// If importing as secrets, we need an encryption key
-	if req.AsSecrets {
-		key := r.Header.Get("X-Encryption-Key")
-		if key == "" {
-			http.Error(w, "Encryption key required to import as secrets", http.StatusBadRequest)
-			return
-		}
-
-		environment.SetEncryptionKey(key)
-	}
-
-	// Import the environment
-	if err := env.ImportDotenv(environment, req.InputPath, req.AsSecrets); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to import environment: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"message": fmt.Sprintf("Variables from %s imported into environment '%s'", req.InputPath, name),
-	})
+	return &env, nil
 }
