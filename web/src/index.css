@@ -110,18 +110,6 @@
   --color-warning-700: #b38619;
   --color-warning-800: #8c6913;
   --color-warning-900: #66470d;
-
-  /* Gray (Background and UI elements) */
-  --color-gray-50: #ffffff;
-  --color-gray-100: #f5f6fa; /* Background light gray */
-  --color-gray-200: #e0e0e5; /* Draft status gray */
-  --color-gray-300: #d8dce8;
-  --color-gray-400: #c8cddd;
-  --color-gray-500: #b7bed1;
-  --color-gray-600: #949cb7;
-  --color-gray-700: #717a9e;
-  --color-gray-800: #4f5871;
-  --color-gray-900: #2d3243;
 }
 
 :root {

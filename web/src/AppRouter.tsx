@@ -10,6 +10,9 @@ import MainLayout from "./layout/MainLayout";
 import Dashboard from "./dashboard";
 import NotFound from "./NotFound";
 import ConfigsPage from "./App";
+import BlueprintList from "./blueprints/BlueprintList";
+import BlueprintForm from "./blueprints/BlueprintForm";
+import BlueprintUse from "./blueprints/BluprintUse";
 
 // Protected route component
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -41,6 +44,10 @@ const AppRouter = () => {
         >
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard />} />
+          <Route path="blueprints" element={<BlueprintList />} />
+          <Route path="blueprints/new" element={<BlueprintForm />} />
+          <Route path="blueprints/edit/:id" element={<BlueprintForm />} />
+          <Route path="blueprints/use/:id" element={<BlueprintUse />} />
           <Route path="configs" element={<ConfigsPage />} />
           <Route path="configs/:configPath" element={<ConfigsPage />} />
 
