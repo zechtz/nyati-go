@@ -12,7 +12,9 @@ import NotFound from "./NotFound";
 import ConfigsPage from "./App";
 import BlueprintList from "./blueprints/BlueprintList";
 import BlueprintForm from "./blueprints/BlueprintForm";
-import BlueprintUse from "./blueprints/BluprintUse";
+import BlueprintUse from "./blueprints/BlueprintUse";
+import SandboxSimulator from "./sandbox/SandboxSimulator";
+import EnvironmentsPage from "./env/Environments";
 
 // Protected route component
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -48,8 +50,10 @@ const AppRouter = () => {
           <Route path="blueprints/new" element={<BlueprintForm />} />
           <Route path="blueprints/edit/:id" element={<BlueprintForm />} />
           <Route path="blueprints/use/:id" element={<BlueprintUse />} />
+          <Route path="sandbox" element={<SandboxSimulator />} />
           <Route path="configs" element={<ConfigsPage />} />
           <Route path="configs/:configPath" element={<ConfigsPage />} />
+          <Route path="environments" element={<EnvironmentsPage />} />
 
           {/* Add placeholder routes for other sections */}
           <Route

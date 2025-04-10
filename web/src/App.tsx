@@ -56,7 +56,7 @@ export interface ConfigState {
   hosts: string[];
 }
 
-interface ConfigDetails {
+export interface ConfigDetails {
   tasks: string[];
   hosts: string[];
 }
