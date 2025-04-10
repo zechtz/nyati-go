@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/dialog";
 
 interface Task {
+  id: string;
   name: string;
   cmd: string;
   dir?: string;
@@ -58,6 +59,7 @@ interface Blueprint {
 }
 
 const defaultTask: Task = {
+  id: crypto.randomUUID(),
   name: "",
   cmd: "",
   dir: "",
@@ -100,7 +102,7 @@ const BlueprintForm = () => {
     const fetchBlueprintTypes = async () => {
       try {
         const response = await axios.get("/api/blueprint-types");
-        setBlueprintTypes(response.data);
+        setBlueprintTypes(response.data.data);
       } catch (error) {
         console.error("Failed to fetch blueprint types:", error);
         toast.error("Failed to load blueprint types");
@@ -118,8 +120,15 @@ const BlueprintForm = () => {
       try {
         setIsLoading(true);
         const response = await axios.get(`/api/blueprints/${id}`);
-        setBlueprint(response.data);
-        setJsonValue(JSON.stringify(response.data, null, 2));
+        const fetchedBlueprint = response.data.data;
+        // Add ids to tasks if they don't exist
+        fetchedBlueprint.tasks = fetchedBlueprint.tasks.map((task: Task) => ({
+          ...task,
+          id: task.id || crypto.randomUUID(),
+        }));
+        setBlueprint(fetchedBlueprint);
+        console.log("fetchedBlueprint", fetchedBlueprint);
+        setJsonValue(JSON.stringify(fetchedBlueprint, null, 2));
       } catch (error) {
         console.error("Failed to fetch blueprint:", error);
         toast.error("Failed to load blueprint");
@@ -163,26 +172,24 @@ const BlueprintForm = () => {
   const handleAddTask = () => {
     setBlueprint((prev) => ({
       ...prev,
-      tasks: [...prev.tasks, { ...defaultTask }],
+      tasks: [...prev.tasks, { ...defaultTask, id: crypto.randomUUID() }],
     }));
   };
 
   const handleRemoveTask = (index: number) => {
     setBlueprint((prev) => {
       const updatedTasks = [...prev.tasks];
-      updatedTasks.splice(index, 1);
+      const removedTask = updatedTasks.splice(index, 1)[0];
 
       // Update dependencies for other tasks
-      const removedTaskName = prev.tasks[index].name;
-      if (removedTaskName) {
-        updatedTasks.forEach((task) => {
-          if (task.depends_on?.includes(removedTaskName)) {
-            task.depends_on = task.depends_on.filter(
-              (dep) => dep !== removedTaskName,
-            );
-          }
-        });
-      }
+      const removedTaskId = removedTask.id;
+      updatedTasks.forEach((task) => {
+        if (task.depends_on?.includes(removedTaskId)) {
+          task.depends_on = task.depends_on.filter(
+            (dep) => dep !== removedTaskId,
+          );
+        }
+      });
 
       return { ...prev, tasks: updatedTasks };
     });
@@ -231,10 +238,8 @@ const BlueprintForm = () => {
         `/api/blueprints/preset/${blueprint.type}`,
       );
 
-      console.log("preset response", response);
-
       // Keep the current name, description, and is_public settings
-      const presetBlueprint = response.data;
+      const presetBlueprint = response.data.data;
       presetBlueprint.name = blueprint.name || presetBlueprint.name;
       presetBlueprint.description =
         blueprint.description || presetBlueprint.description;
@@ -425,7 +430,7 @@ const BlueprintForm = () => {
               </CardHeader>
               <CardContent className="space-y-6">
                 {blueprint.tasks.map((task, index) => (
-                  <div key={index} className="border p-4 rounded-md relative">
+                  <div key={task.id} className="border p-4 rounded-md relative">
                     <Button
                       type="button"
                       variant="ghost"
@@ -539,8 +544,8 @@ const BlueprintForm = () => {
                               .filter((_, i) => i !== index)
                               .map((t) => (
                                 <SelectItem
-                                  key={t.name}
-                                  value={t.name}
+                                  key={t.id}
+                                  value={t.id}
                                   disabled={
                                     !t.name || task.depends_on?.includes(t.name)
                                   }
@@ -554,31 +559,36 @@ const BlueprintForm = () => {
                       <div className="space-y-2">
                         {task.depends_on && task.depends_on.length > 0 ? (
                           <div className="mt-6">
-                            {task.depends_on.map((dep) => (
-                              <span
-                                key={dep}
-                                className="inline-flex items-center bg-gray-100 text-gray-800 mr-2 px-2 py-1 rounded text-sm"
-                              >
-                                {dep}
-                                <button
-                                  type="button"
-                                  className="ml-1 text-gray-500 hover:text-red-500"
-                                  onClick={() => {
-                                    const updatedDeps =
-                                      task.depends_on?.filter(
-                                        (d) => d !== dep,
-                                      ) || [];
-                                    handleTaskChange(
-                                      index,
-                                      "depends_on",
-                                      updatedDeps,
-                                    );
-                                  }}
+                            {task.depends_on.map((depId) => {
+                              const depTask = blueprint.tasks.find(
+                                (t) => t.id === depId,
+                              );
+                              return (
+                                <span
+                                  key={depId}
+                                  className="inline-flex items-center bg-gray-100 text-gray-800 mr-2 px-2 py-1 rounded text-sm"
                                 >
-                                  ×
-                                </button>
-                              </span>
-                            ))}
+                                  {depTask?.name || "Unknown Task"}
+                                  <button
+                                    type="button"
+                                    className="ml-1 text-gray-500 hover:text-red-500"
+                                    onClick={() => {
+                                      const updatedDeps =
+                                        task.depends_on?.filter(
+                                          (d) => d !== depId,
+                                        ) || [];
+                                      handleTaskChange(
+                                        index,
+                                        "depends_on",
+                                        updatedDeps,
+                                      );
+                                    }}
+                                  >
+                                    ×
+                                  </button>
+                                </span>
+                              );
+                            })}
                           </div>
                         ) : (
                           <div className="mt-6 text-gray-500 text-sm">

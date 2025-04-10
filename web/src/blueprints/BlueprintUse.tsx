@@ -69,7 +69,7 @@ const BlueprintUse = () => {
       try {
         setIsLoading(true);
         const response = await axios.get(`/api/blueprints/${id}`);
-        setBlueprint(response.data);
+        setBlueprint(response.data.data);
 
         // Initialize parameters with blueprint defaults
         setParameters(response.data.parameters || {});

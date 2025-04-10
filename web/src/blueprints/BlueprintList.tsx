@@ -61,7 +61,7 @@ const BlueprintList = () => {
     try {
       setIsLoading(true);
       const response = await axios.get("/api/blueprints");
-      setBlueprints(response.data || []);
+      setBlueprints(response.data.data || []);
     } catch (error) {
       console.error("Failed to fetch blueprints:", error);
       toast.error("Failed to load blueprints");
@@ -74,14 +74,13 @@ const BlueprintList = () => {
   const fetchBlueprintTypes = async () => {
     try {
       const response = await axios.get("/api/blueprint-types");
-      setBlueprintTypes(response.data);
+      setBlueprintTypes(response.data.data || []);
     } catch (error) {
       console.error("Failed to fetch blueprint types:", error);
     }
   };
 
   // Filter blueprints based on search query and type filter
-  console.log("blueprints", blueprints);
   const filteredBlueprints = blueprints.filter((blueprint) => {
     const matchesSearch =
       blueprint.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -181,11 +180,12 @@ const BlueprintList = () => {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Types</SelectItem>
-              {blueprintTypes.map((type) => (
-                <SelectItem key={type} value={type}>
-                  {type.charAt(0).toUpperCase() + type.slice(1)}
-                </SelectItem>
-              ))}
+              {blueprintTypes &&
+                blueprintTypes.map((type) => (
+                  <SelectItem key={type} value={type}>
+                    {type.charAt(0).toUpperCase() + type.slice(1)}
+                  </SelectItem>
+                ))}
             </SelectContent>
           </Select>
         </div>
