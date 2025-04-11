@@ -93,8 +93,7 @@ const MainLayout = () => {
     if (
       location.pathname.startsWith("/settings") ||
       location.pathname.startsWith("/tasks") ||
-      location.pathname.startsWith("/users") ||
-      location.pathname.startsWith("/environments")
+      location.pathname.startsWith("/users")
     ) {
       setIsSettingsOpen(true);
     }
@@ -242,8 +241,8 @@ const MainLayout = () => {
             <button
               onClick={toggleSettings}
               className={`flex items-center p-2 rounded ${
-                ["/settings", "/tasks", "/users", "/environments"].some(
-                  (path) => location.pathname.startsWith(path),
+                ["/settings", "/tasks", "/users"].some((path) =>
+                  location.pathname.startsWith(path),
                 )
                   ? "bg-primary-500"
                   : "hover:bg-primary-600"
@@ -298,16 +297,6 @@ const MainLayout = () => {
                 }
               >
                 Manage Users
-              </NavLink>
-              <NavLink
-                to="/environments"
-                className={({ isActive }) =>
-                  `block p-2 rounded ${
-                    isActive ? "bg-primary-500" : "hover:bg-primary-600"
-                  } transition-colors duration-200`
-                }
-              >
-                Manage Environments
               </NavLink>
             </div>
           </div>
