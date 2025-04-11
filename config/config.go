@@ -33,17 +33,17 @@ type Host struct {
 
 // Task defines a command to run on a host, along with its metadata and dependencies.
 type Task struct {
-	ID        string   `mapstructure:"name,omitempty"`       // Unique identifier for the task
-	Name      string   `mapstructure:"name"`                 // Unique identifier for the task
-	Cmd       string   `mapstructure:"cmd"`                  // Shell command to run
-	Dir       string   `mapstructure:"dir,omitempty"`        // Optional working directory for the command
-	Expect    int      `mapstructure:"expect"`               // Expected exit code (0 = success)
-	Message   string   `mapstructure:"message,omitempty"`    // Optional message to display before execution
-	Retry     bool     `mapstructure:"retry,omitempty"`      // Whether to retry on failure
-	AskPass   bool     `mapstructure:"askpass,omitempty"`    // Whether to prompt for password
-	Lib       bool     `mapstructure:"lib,omitempty"`        // Whether this is a library task (not run by default)
-	Output    bool     `mapstructure:"output,omitempty"`     // Whether to display command output
-	DependsOn []string `mapstructure:"depends_on,omitempty"` // List of task names that must run before this one
+	ID        string   `mapstructure:"id,omitempty" json:"id"`                           // Unique identifier for the task
+	Name      string   `mapstructure:"name" json:"name"`                                 // Unique identifier for the task
+	Cmd       string   `mapstructure:"cmd" json:"cmd"`                                   // Shell command to run
+	Dir       string   `mapstructure:"dir,omitempty" json:"dir,omitempty"`               // Optional working directory for the command
+	Expect    int      `mapstructure:"expect" json:"expect"`                             // Expected exit code (0 = success)
+	Message   string   `mapstructure:"message,omitempty" json:"message,omitempty"`       // Optional message to display before execution
+	Retry     bool     `mapstructure:"retry,omitempty" json:"retry,omitempty"`           // Whether to retry on failure
+	AskPass   bool     `mapstructure:"askpass,omitempty" json:"askpass,omitempty"`       // Whether to prompt for password
+	Lib       bool     `mapstructure:"lib,omitempty" json:"lib,omitempty"`               // Whether this is a library task (not run by default)
+	Output    bool     `mapstructure:"output,omitempty" json:"output,omitempty"`         // Whether to display command output
+	DependsOn []string `mapstructure:"depends_on,omitempty" json:"depends_on,omitempty"` // List of task names that must run before this one
 }
 
 // Load reads, parses, and validates a YAML configuration file into a Config object.

@@ -126,8 +126,14 @@ const BlueprintForm = () => {
           ...task,
           id: task.id || crypto.randomUUID(),
         }));
-        setBlueprint(fetchedBlueprint);
+
         console.log("fetchedBlueprint", fetchedBlueprint);
+
+        setBlueprint((prev) => ({
+          ...prev,
+          ...fetchedBlueprint,
+        }));
+
         setJsonValue(JSON.stringify(fetchedBlueprint, null, 2));
       } catch (error) {
         console.error("Failed to fetch blueprint:", error);
@@ -224,7 +230,11 @@ const BlueprintForm = () => {
   const handleJSONUpdate = () => {
     try {
       const updatedBlueprint = JSON.parse(jsonValue);
-      setBlueprint(updatedBlueprint);
+      setBlueprint((prev) => ({
+        ...prev,
+        ...updatedBlueprint,
+      }));
+
       setShowJsonEditor(false);
       toast.success("Blueprint updated from JSON");
     } catch (error) {
@@ -245,7 +255,11 @@ const BlueprintForm = () => {
         blueprint.description || presetBlueprint.description;
       presetBlueprint.is_public = blueprint.is_public;
 
-      setBlueprint(presetBlueprint);
+      setBlueprint((prev) => ({
+        ...prev,
+        ...presetBlueprint,
+      }));
+
       toast.success(`Loaded ${blueprint.type} blueprint template`);
     } catch (error) {
       console.error("Failed to load blueprint preset:", error);
