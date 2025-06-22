@@ -163,6 +163,11 @@ func GetBlueprints(db *sql.DB, userID int) ([]Blueprint, error) {
 		blueprints = append(blueprints, blueprint)
 	}
 
+	// Check for errors during iteration
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error during blueprint row iteration: %v", err)
+	}
+
 	return blueprints, nil
 }
 

@@ -68,7 +68,9 @@ func NewServer() (*Server, error) {
 	var userCount int
 	err = db.QueryRow("SELECT COUNT(*) FROM users").Scan(&userCount)
 	if err != nil {
-		db.Close()
+		if closeErr := db.Close(); closeErr != nil {
+			log.Printf("Failed to close database after query error: %v", closeErr)
+		}
 		return nil, fmt.Errorf("failed to check user count: %v", err)
 	}
 
@@ -83,7 +85,9 @@ func NewServer() (*Server, error) {
 	// We don't specify a user_id here because we want all configs
 	configs, err := LoadConfigs(db)
 	if err != nil {
-		db.Close()
+		if closeErr := db.Close(); closeErr != nil {
+			log.Printf("Failed to close database after config load error: %v", closeErr)
+		}
 		return nil, fmt.Errorf("failed to load configs: %v", err)
 	}
 
@@ -112,8 +116,9 @@ func NewServer() (*Server, error) {
 // Returns:
 //   - error: from ListenAndServe if the server fails to start
 func (s *Server) Start(port string) error {
-	// Ensure the database connection is closed when the server shuts down
-	defer s.db.Close()
+	// Note: Database connection is intentionally NOT closed here since the server
+	// needs it throughout its lifetime. The connection will be closed when the 
+	// server instance is garbage collected or explicitly closed by calling Close().
 
 	// Background goroutine to dispatch log messages to each session's WebSocket
 	go func() {
@@ -135,7 +140,7 @@ func (s *Server) Start(port string) error {
 	// --- Serve embedded frontend ---
 	uiFS, err := fs.Sub(web.EmbeddedUI, "dist")
 	if err != nil {
-		log.Fatalf("Failed to access embedded UI: %v", err)
+		return fmt.Errorf("failed to access embedded UI: %v", err)
 	}
 
 	// Add CORS middleware
@@ -202,6 +207,14 @@ func (s *Server) Start(port string) error {
 
 	log.Printf("Starting web server on :%s", port)
 	return http.ListenAndServe(":"+port, corsHandler)
+}
+
+// Close gracefully shuts down the server and closes database connections
+func (s *Server) Close() error {
+	if s.db != nil {
+		return s.db.Close()
+	}
+	return nil
 }
 
 // handleGetConfigs returns all saved configuration entries as JSON.

@@ -269,6 +269,11 @@ func GetEnvironment(db *sql.DB, id int) (*Environment, error) {
 		}
 	}
 
+	// Check for errors during iteration
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error during environment variable row iteration: %v", err)
+	}
+
 	return env, nil
 }
 
@@ -295,6 +300,11 @@ func GetEnvironments(db *sql.DB, userID int) ([]*Environment, error) {
 		environments = append(environments, env)
 	}
 
+	// Check for errors during iteration
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error during environment row iteration: %v", err)
+	}
+
 	// Load variables for each environment
 	for _, env := range environments {
 		varRows, err := db.Query("SELECT key, value, is_secret, encrypted_value FROM environment_variables WHERE environment_id = ?", env.ID)
@@ -316,6 +326,12 @@ func GetEnvironments(db *sql.DB, userID int) ([]*Environment, error) {
 			} else {
 				env.Variables[key] = value
 			}
+		}
+
+		// Check for errors during iteration
+		if err := varRows.Err(); err != nil {
+			varRows.Close()
+			return nil, fmt.Errorf("error during environment variable row iteration: %v", err)
 		}
 
 		varRows.Close()
@@ -364,6 +380,11 @@ func GetActiveEnvironment(db *sql.DB, userID int) (*Environment, error) {
 		} else {
 			env.Variables[key] = value
 		}
+	}
+
+	// Check for errors during iteration
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error during environment variable row iteration: %v", err)
 	}
 
 	return env, nil

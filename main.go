@@ -3,6 +3,9 @@ package main
 import (
 	"flag"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/zechtz/nyatictl/api"
 	"github.com/zechtz/nyatictl/cli"
@@ -63,7 +66,10 @@ func main() {
 	// Initialize the logging system — this sets up:
 	//   1. LogChan for streaming logs to WebSocket clients
 	//   2. Persistent file logging to the configured path
-	logger.Init()
+	if err := logger.Init(); err != nil {
+		log.Printf("Failed to initialize logger: %v", err)
+		return
+	}
 
 	// -----------------------------
 	// Config File Initialization
@@ -76,7 +82,8 @@ func main() {
 	// If it does not exist, it will be created with an empty JSON array ([]).
 	// This prevents "file not found" errors during web UI interactions.
 	if err := api.EnsureConfigsFile(); err != nil {
-		log.Fatalf("Failed to create config file at '%s': %v", *configsPath, err)
+		log.Printf("Failed to create config file at '%s': %v", *configsPath, err)
+		return
 	}
 
 	// -----------------------------
@@ -87,15 +94,48 @@ func main() {
 		// WEB MODE: Start the backend HTTP server for the web UI
 		server, err := api.NewServer()
 		if err != nil {
-			panic(err) // Startup failed — cannot proceed
+			log.Printf("Failed to initialize web server: %v", err)
+			return
 		}
-		if err := server.Start(*port); err != nil {
-			panic(err) // Could not bind or run HTTP server
+
+		// Set up graceful shutdown handling
+		signalChan := make(chan os.Signal, 1)
+		signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
+
+		// Start server in a goroutine
+		go func() {
+			log.Printf("Starting web server on port %s", *port)
+			if err := server.Start(*port); err != nil {
+				log.Printf("Web server error: %v", err)
+				signalChan <- syscall.SIGTERM
+			}
+		}()
+
+		// Wait for shutdown signal
+		<-signalChan
+		log.Println("Shutdown signal received, cleaning up...")
+
+		// Close server resources
+		if err := server.Close(); err != nil {
+			log.Printf("Error closing server: %v", err)
 		}
+
+		// Close logger resources
+		if err := logger.Close(); err != nil {
+			log.Printf("Error closing logger: %v", err)
+		}
+
+		log.Println("Shutdown complete")
 	} else {
 		// CLI MODE: Execute automation tasks via the command line
 		if err := cli.Execute(version); err != nil {
-			panic(err) // CLI execution failed (bad config, missing tasks, etc.)
+			log.Printf("CLI execution failed: %v", err)
+			return
+		}
+
+		// Close logger resources after CLI execution
+		if err := logger.Close(); err != nil {
+			log.Printf("Error closing logger: %v", err)
 		}
 	}
 }

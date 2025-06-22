@@ -15,6 +15,21 @@ import (
 	"github.com/zechtz/nyatictl/logger"
 )
 
+// parseTimeWithLogging safely parses a time string and returns a zero time if parsing fails
+func parseTimeWithLogging(timeStr string, fieldName string) time.Time {
+	if timeStr == "" {
+		return time.Time{}
+	}
+	
+	parsedTime, err := time.Parse(time.RFC3339, timeStr)
+	if err != nil {
+		logger.Log(fmt.Sprintf("Warning: failed to parse %s time '%s': %v", fieldName, timeStr, err))
+		return time.Time{}
+	}
+	
+	return parsedTime
+}
+
 // Webhook represents a webhook configuration
 type Webhook struct {
 	ID          int       `json:"id"`
@@ -106,9 +121,14 @@ func GetWebhooks(db *sql.DB, userID int) ([]Webhook, error) {
 			return nil, fmt.Errorf("failed to scan webhook: %v", err)
 		}
 
-		webhook.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-		webhook.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+		webhook.CreatedAt = parseTimeWithLogging(createdAt, "created_at")
+		webhook.UpdatedAt = parseTimeWithLogging(updatedAt, "updated_at")
 		webhooks = append(webhooks, webhook)
+	}
+
+	// Check for errors during iteration
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error during webhook row iteration: %v", err)
 	}
 
 	return webhooks, nil
@@ -147,9 +167,14 @@ func GetWebhooksByEvent(db *sql.DB, event string) ([]Webhook, error) {
 			return nil, fmt.Errorf("failed to scan webhook: %v", err)
 		}
 
-		webhook.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-		webhook.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+		webhook.CreatedAt = parseTimeWithLogging(createdAt, "created_at")
+		webhook.UpdatedAt = parseTimeWithLogging(updatedAt, "updated_at")
 		webhooks = append(webhooks, webhook)
+	}
+
+	// Check for errors during iteration
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error during webhook row iteration: %v", err)
 	}
 
 	return webhooks, nil
@@ -180,8 +205,8 @@ func GetWebhook(db *sql.DB, id int, userID int) (Webhook, error) {
 		return Webhook{}, fmt.Errorf("failed to get webhook: %v", err)
 	}
 
-	webhook.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-	webhook.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+	webhook.CreatedAt = parseTimeWithLogging(createdAt, "created_at")
+	webhook.UpdatedAt = parseTimeWithLogging(updatedAt, "updated_at")
 	return webhook, nil
 }
 
@@ -262,7 +287,13 @@ func sendWebhook(webhook Webhook, payload WebhookPayload) {
 		logger.Log(fmt.Sprintf("Failed to send webhook: %v", err))
 		return
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if resp != nil && resp.Body != nil {
+			if err := resp.Body.Close(); err != nil {
+				logger.Log(fmt.Sprintf("Failed to close webhook response body: %v", err))
+			}
+		}
+	}()
 
 	// Record webhook response code
 	logger.Log(fmt.Sprintf("Webhook %s (%d) delivered: Status %d", webhook.Name, webhook.ID, resp.StatusCode))

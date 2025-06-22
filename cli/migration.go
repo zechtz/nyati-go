@@ -148,6 +148,11 @@ func runMigrations() error {
 		applied[name] = true
 	}
 
+	// Check for errors during iteration
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("error during migration row iteration: %v", err)
+	}
+
 	// Read migration files
 	migrations, err := readMigrations()
 	if err != nil {
@@ -635,6 +640,11 @@ func showMigrationStatus() error {
 			return fmt.Errorf("failed to scan migration: %v", err)
 		}
 		applied[name] = appliedAt
+	}
+
+	// Check for errors during iteration
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("error during migration row iteration: %v", err)
 	}
 
 	// Read migration files

@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -32,7 +33,10 @@ func SetLogFilePath(path string) {
 //  2. Ensures the directory for logFilePath exists (creates if missing).
 //  3. Opens or creates the log file in append mode.
 //  4. Makes logging via Log() available throughout the app.
-func Init() {
+//
+// Returns:
+//   - error: if directory creation or file opening fails
+func Init() error {
 	logLock.Lock()
 	defer logLock.Unlock()
 
@@ -44,15 +48,17 @@ func Init() {
 	// Step 2: Ensure the log directory exists
 	logDir := filepath.Dir(logFilePath)
 	if err := os.MkdirAll(logDir, os.ModePerm); err != nil {
-		log.Fatalf("logger: failed to create log directory %s: %v", logDir, err)
+		return fmt.Errorf("failed to create log directory %s: %v", logDir, err)
 	}
 
 	// Step 3: Open or create the log file for writing (append mode)
 	var err error
 	logFile, err = os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
-		log.Fatalf("logger: failed to open log file %s: %v", logFilePath, err)
+		return fmt.Errorf("failed to open log file %s: %v", logFilePath, err)
 	}
+
+	return nil
 }
 
 // Log sends a message to the global LogChan and also writes it to the log file.
@@ -76,6 +82,22 @@ func Log(msg string) {
 
 	// Append message to log file (if initialized)
 	if logFile != nil {
-		logFile.WriteString(msg + "\n")
+		if _, err := logFile.WriteString(msg + "\n"); err != nil {
+			// Log the error to standard error to avoid infinite recursion
+			log.Printf("Failed to write to log file: %v", err)
+		}
 	}
+}
+
+// Close closes the log file handle and cleans up resources
+func Close() error {
+	logLock.Lock()
+	defer logLock.Unlock()
+
+	if logFile != nil {
+		err := logFile.Close()
+		logFile = nil
+		return err
+	}
+	return nil
 }

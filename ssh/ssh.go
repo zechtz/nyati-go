@@ -1,6 +1,7 @@
 package ssh
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -216,15 +217,37 @@ func NewClient(name string, server config.Host, debug bool) (*Client, error) {
 
 // Connect dials the remote host and establishes an SSH connection.
 //
+// Parameters:
+//   - ctx: context for cancellation and timeout control
+//
 // Returns:
-//   - error: if dialing the host fails
-func (c *Client) Connect() error {
-	client, err := ssh.Dial("tcp", c.Server.Host+":22", c.config)
-	if err != nil {
-		return err
+//   - error: if dialing the host fails or context is cancelled
+func (c *Client) ConnectWithContext(ctx context.Context) error {
+	// Create a dialer that respects context cancellation
+	dialer := &net.Dialer{
+		Timeout: 10 * time.Second,
 	}
-	c.client = client
+	
+	conn, err := dialer.DialContext(ctx, "tcp", c.Server.Host+":22")
+	if err != nil {
+		return fmt.Errorf("failed to dial SSH host: %v", err)
+	}
+	
+	clientConn, chans, reqs, err := ssh.NewClientConn(conn, c.Server.Host+":22", c.config)
+	if err != nil {
+		conn.Close()
+		return fmt.Errorf("failed to create SSH client connection: %v", err)
+	}
+	
+	c.client = ssh.NewClient(clientConn, chans, reqs)
 	return nil
+}
+
+// Connect provides backward compatibility - uses context with default timeout
+func (c *Client) Connect() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return c.ConnectWithContext(ctx)
 }
 
 // Disconnect cleanly closes the SSH session.
@@ -234,12 +257,13 @@ func (c *Client) Disconnect() {
 	}
 }
 
-// Exec executes a command (task.Cmd) on the remote server over SSH.
+// ExecWithContext executes a command (task.Cmd) on the remote server over SSH with context support.
 //
 // It optionally changes the working directory, handles password prompt (if AskPass is set),
 // captures both stdout and stderr, and returns output + status.
 //
 // Parameters:
+//   - ctx: context for cancellation and timeout control
 //   - task: Task to be executed on the remote host
 //   - debug: Flag to enable printing/logging of the command
 //
@@ -247,7 +271,11 @@ func (c *Client) Disconnect() {
 //   - int: Exit status code
 //   - string: Combined stdout and stderr output
 //   - error: If the session setup or command execution fails
-func (c *Client) Exec(task config.Task, debug bool) (int, string, error) {
+func (c *Client) ExecWithContext(ctx context.Context, task config.Task, debug bool) (int, string, error) {
+	if c.client == nil {
+		return -1, "", fmt.Errorf("SSH client not connected")
+	}
+	
 	session, err := c.client.NewSession()
 	if err != nil {
 		return -1, "", err
@@ -275,17 +303,42 @@ func (c *Client) Exec(task config.Task, debug bool) (int, string, error) {
 		fmt.Println(msg)
 	}
 
-	// Run command
-	err = session.Run(cmd)
-	output := stdout.String() + stderr.String()
-
-	if err != nil {
-		// Gracefully handle remote command exit codes
-		if exitErr, ok := err.(*ssh.ExitError); ok {
-			return exitErr.ExitStatus(), output, nil
-		}
-		return -1, output, err
+	// Create a channel to receive the result
+	type result struct {
+		err error
 	}
+	resultChan := make(chan result, 1)
 
-	return 0, output, nil
+	// Run command in a goroutine
+	go func() {
+		err := session.Run(cmd)
+		resultChan <- result{err: err}
+	}()
+
+	// Wait for either command completion or context cancellation
+	select {
+	case res := <-resultChan:
+		output := stdout.String() + stderr.String()
+		
+		if res.err != nil {
+			// Gracefully handle remote command exit codes
+			if exitErr, ok := res.err.(*ssh.ExitError); ok {
+				return exitErr.ExitStatus(), output, nil
+			}
+			return -1, output, res.err
+		}
+		return 0, output, nil
+
+	case <-ctx.Done():
+		// Context was cancelled or timed out
+		return -1, "", fmt.Errorf("command execution cancelled: %v", ctx.Err())
+	}
+}
+
+// Exec provides backward compatibility - uses context with default timeout
+func (c *Client) Exec(task config.Task, debug bool) (int, string, error) {
+	// Use a reasonable default timeout for SSH commands
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	return c.ExecWithContext(ctx, task, debug)
 }
