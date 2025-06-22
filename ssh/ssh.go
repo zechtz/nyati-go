@@ -1,14 +1,19 @@
 package ssh
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/zechtz/nyatictl/config"
 	"github.com/zechtz/nyatictl/logger"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 // Manager orchestrates connections to multiple SSH clients.
@@ -30,6 +35,60 @@ type Client struct {
 	config *ssh.ClientConfig // SSH configuration used to establish connection
 	client *ssh.Client       // Active SSH connection
 	env    map[string]string // Environment variables loaded from optional env file
+}
+
+// getKnownHostsFile returns the path to the known_hosts file
+func getKnownHostsFile() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(homeDir, ".ssh", "known_hosts")
+}
+
+// createHostKeyCallback creates a secure host key callback that validates
+// against known_hosts file and prompts user for unknown hosts
+func createHostKeyCallback() ssh.HostKeyCallback {
+	knownHostsFile := getKnownHostsFile()
+	
+	// Try to load known hosts file if it exists
+	var knownHostsCallback ssh.HostKeyCallback
+	if knownHostsFile != "" && fileExists(knownHostsFile) {
+		var err error
+		knownHostsCallback, err = knownhosts.New(knownHostsFile)
+		if err != nil {
+			logger.Log(fmt.Sprintf("Warning: Could not load known_hosts file (%s): %v", knownHostsFile, err))
+		}
+	}
+
+	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		// If we have a known_hosts callback, try it first
+		if knownHostsCallback != nil {
+			err := knownHostsCallback(hostname, remote, key)
+			if err == nil {
+				return nil // Host key is already known and valid
+			}
+		}
+
+		// For unknown hosts, show the key fingerprint and require explicit approval
+		keyHash := sha256.Sum256(key.Marshal())
+		fingerprint := hex.EncodeToString(keyHash[:])
+		
+		logger.Log(fmt.Sprintf("WARNING: Unknown host key for %s", hostname))
+		logger.Log(fmt.Sprintf("Host key fingerprint (SHA256): %s", fingerprint))
+		logger.Log(fmt.Sprintf("Key type: %s", key.Type()))
+		
+		// In automated mode, we should reject unknown hosts for security
+		// In interactive mode, we could prompt the user
+		// For now, we'll log the details and reject for security
+		return fmt.Errorf("host key verification failed: unknown host %s with fingerprint %s", hostname, fingerprint)
+	}
+}
+
+// fileExists checks if a file exists
+func fileExists(filename string) bool {
+	_, err := os.Stat(filename)
+	return !os.IsNotExist(err)
 }
 
 // NewManager returns a new Manager instance, bound to config and CLI args.
@@ -148,7 +207,7 @@ func NewClient(name string, server config.Host, debug bool) (*Client, error) {
 		config: &ssh.ClientConfig{
 			User:            server.Username,
 			Auth:            authMethods,
-			HostKeyCallback: ssh.InsecureIgnoreHostKey(), // TODO: Replace with proper host key verification
+			HostKeyCallback: createHostKeyCallback(),
 			Timeout:         10 * time.Second,
 		},
 		env: env,

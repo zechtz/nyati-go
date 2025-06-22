@@ -20,7 +20,6 @@ import (
 	"github.com/zechtz/nyatictl/config"
 	"github.com/zechtz/nyatictl/logger"
 	"github.com/zechtz/nyatictl/web"
-	"golang.org/x/crypto/bcrypt"
 )
 
 // Embed the web/build directory
@@ -62,51 +61,22 @@ func NewServer() (*Server, error) {
 		return nil, fmt.Errorf("failed to open database: %v", err)
 	}
 
-	// Create configs table if it doesn't exist
-	// should probably be moved to the migrations directory
-	createConfigsTable := `
-  CREATE TABLE IF NOT EXISTS configs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT,
-    description TEXT,
-    path TEXT UNIQUE,
-    status TEXT,
-    user_id INTEGER DEFAULT 1
-    );`
-	_, err = db.Exec(createConfigsTable)
+	// Database schema is managed through migrations
+	// Tables are created via the migration system in EnsureDatabaseMigrated()
+
+	// Check if any users exist, if not, this is the initial setup
+	var userCount int
+	err = db.QueryRow("SELECT COUNT(*) FROM users").Scan(&userCount)
 	if err != nil {
 		db.Close()
-		return nil, fmt.Errorf("failed to create configs table: %v", err)
+		return nil, fmt.Errorf("failed to check user count: %v", err)
 	}
 
-	// Create users table if it doesn't exist // should probably move this to the
-	// migrations folder
-	createUsersTable := `CREATE TABLE IF NOT EXISTS users(
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT UNIQUE,
-    password TEXT,
-    created_at TEXT
-  );`
-
-	_, err = db.Exec(createUsersTable)
-	if err != nil {
-		db.Close()
-		return nil, fmt.Errorf("failed to create users table: %v", err)
-	}
-
-	// Insert a default user for testing if it doesn't exist
-	password := "secret"
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		db.Close()
-		return nil, fmt.Errorf("failed to hash password: %v", err)
-	}
-
-	_, err = db.Exec(`INSERT OR IGNORE INTO users (email, password, created_at) VALUES (?, ?, ?)`,
-		"admin@example.com", string(hashedPassword), time.Now().Format(time.RFC3339))
-	if err != nil {
-		db.Close()
-		return nil, fmt.Errorf("failed to insert default user: %v", err)
+	// Only create initial setup if no users exist
+	if userCount == 0 {
+		log.Println("No users found. Initial setup required.")
+		log.Println("Please create an admin user by registering through the web interface.")
+		log.Println("The first user to register will have admin privileges.")
 	}
 
 	// Load all configs from the database initially (for server startup)

@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"regexp"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -16,6 +18,53 @@ type RegisterRequest struct {
 	Password string `json:"password"`
 }
 
+// validateEmail checks if the email format is valid
+func validateEmail(email string) bool {
+	emailRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
+	return emailRegex.MatchString(email)
+}
+
+// validatePassword checks if password meets security requirements
+func validatePassword(password string) []string {
+	var errors []string
+	
+	if len(password) < 8 {
+		errors = append(errors, "Password must be at least 8 characters long")
+	}
+	
+	hasUpper := regexp.MustCompile(`[A-Z]`).MatchString(password)
+	hasLower := regexp.MustCompile(`[a-z]`).MatchString(password)
+	hasNumber := regexp.MustCompile(`[0-9]`).MatchString(password)
+	hasSpecial := regexp.MustCompile(`[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\?]`).MatchString(password)
+	
+	if !hasUpper {
+		errors = append(errors, "Password must contain at least one uppercase letter")
+	}
+	if !hasLower {
+		errors = append(errors, "Password must contain at least one lowercase letter")
+	}
+	if !hasNumber {
+		errors = append(errors, "Password must contain at least one number")
+	}
+	if !hasSpecial {
+		errors = append(errors, "Password must contain at least one special character")
+	}
+	
+	return errors
+}
+
+// sanitizeInput removes potentially dangerous characters from input
+func sanitizeInput(input string) string {
+	// Remove null bytes and control characters
+	cleaned := strings.ReplaceAll(input, "\x00", "")
+	cleaned = regexp.MustCompile(`[\x00-\x1f\x7f]`).ReplaceAllString(cleaned, "")
+	
+	// Trim whitespace
+	cleaned = strings.TrimSpace(cleaned)
+	
+	return cleaned
+}
+
 // HandleRegister processes user registration requests
 func (s *Server) HandleRegister(w http.ResponseWriter, r *http.Request) {
 	var req RegisterRequest
@@ -24,9 +73,27 @@ func (s *Server) HandleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate request
+	// Sanitize inputs
+	req.Email = sanitizeInput(req.Email)
+	req.Name = sanitizeInput(req.Name)
+	// Note: Don't sanitize password as it might remove valid special characters
+
+	// Validate required fields
 	if req.Email == "" || req.Password == "" {
 		http.Error(w, "Email and password are required", http.StatusBadRequest)
+		return
+	}
+
+	// Validate email format
+	if !validateEmail(req.Email) {
+		http.Error(w, "Invalid email format", http.StatusBadRequest)
+		return
+	}
+
+	// Validate password strength
+	if passwordErrors := validatePassword(req.Password); len(passwordErrors) > 0 {
+		errorMsg := "Password validation failed: " + strings.Join(passwordErrors, ", ")
+		http.Error(w, errorMsg, http.StatusBadRequest)
 		return
 	}
 
