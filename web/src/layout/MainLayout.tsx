@@ -16,6 +16,11 @@ import {
   Codesandbox,
   Container,
   ExternalLink,
+  Monitor,
+  Activity,
+  Heart,
+  Database,
+  FileText,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -44,6 +49,7 @@ const MainLayout = () => {
   // Sidebar state
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isBlueprintsOpen, setIsBlueprintsOpen] = useState(false);
+  const [isSystemOpen, setIsSystemOpen] = useState(true);
   const [newConfigPath, setNewConfigPath] = useState("");
   const [, setConfigs] = useState<ConfigEntry[]>([]);
   const [, setConfigStates] = useState<{
@@ -53,6 +59,7 @@ const MainLayout = () => {
   // Animation refs for menu containers
   const settingsMenuRef = useRef<HTMLDivElement>(null);
   const blueprintsMenuRef = useRef<HTMLDivElement>(null);
+  const systemMenuRef = useRef<HTMLDivElement>(null);
 
   // Handle responsive behavior
   useEffect(() => {
@@ -101,6 +108,10 @@ const MainLayout = () => {
     if (location.pathname.startsWith("/deployments")) {
       setIsBlueprintsOpen(true);
     }
+
+    if (location.pathname.startsWith("/system")) {
+      setIsSystemOpen(true);
+    }
   }, [location.pathname]);
 
   // Set heights for animation
@@ -115,7 +126,12 @@ const MainLayout = () => {
         ? `${blueprintsMenuRef.current.scrollHeight}px`
         : "0px";
     }
-  }, [isSettingsOpen, isBlueprintsOpen]);
+    if (systemMenuRef.current) {
+      systemMenuRef.current.style.maxHeight = isSystemOpen
+        ? `${systemMenuRef.current.scrollHeight}px`
+        : "0px";
+    }
+  }, [isSettingsOpen, isBlueprintsOpen, isSystemOpen]);
 
   const handleLogout = () => {
     logout();
@@ -237,6 +253,94 @@ const MainLayout = () => {
             <Container className="h-5 w-5" />
             <span className="ml-2">Environments</span>
           </NavLink>
+          
+          {/* System Monitoring Section */}
+          <div>
+            <button
+              onClick={() => setIsSystemOpen(!isSystemOpen)}
+              className={`flex items-center p-2 rounded ${
+                location.pathname.startsWith("/system")
+                  ? "bg-primary-500"
+                  : "hover:bg-primary-600"
+              } w-full text-left transition-colors duration-200`}
+            >
+              <Monitor className="h-5 w-5" />
+              <span className="ml-2">System</span>
+              <div className="ml-auto">
+                {isSystemOpen ? (
+                  <ChevronDown className="h-5 w-5 transition-transform duration-200" />
+                ) : (
+                  <ChevronRight className="h-5 w-5 transition-transform duration-200" />
+                )}
+              </div>
+            </button>
+            <div
+              ref={systemMenuRef}
+              className="overflow-hidden transition-all ease-in-out pl-6 space-y-1"
+              style={{
+                maxHeight: "0",
+                opacity: isSystemOpen ? 1 : 0,
+                transitionDuration: `${ANIMATION_DURATION}ms`,
+              }}
+            >
+              <NavLink
+                to="/system/overview"
+                className={({ isActive }) =>
+                  `flex items-center p-2 rounded ${
+                    isActive ? "bg-primary-500" : "hover:bg-primary-600"
+                  } transition-colors duration-200`
+                }
+              >
+                <Activity className="h-4 w-4 mr-2" />
+                Overview
+              </NavLink>
+              <NavLink
+                to="/system/health"
+                className={({ isActive }) =>
+                  `flex items-center p-2 rounded ${
+                    isActive ? "bg-primary-500" : "hover:bg-primary-600"
+                  } transition-colors duration-200`
+                }
+              >
+                <Heart className="h-4 w-4 mr-2" />
+                Health Status
+              </NavLink>
+              <NavLink
+                to="/system/database"
+                className={({ isActive }) =>
+                  `flex items-center p-2 rounded ${
+                    isActive ? "bg-primary-500" : "hover:bg-primary-600"
+                  } transition-colors duration-200`
+                }
+              >
+                <Database className="h-4 w-4 mr-2" />
+                Database Metrics
+              </NavLink>
+              <NavLink
+                to="/system/settings"
+                className={({ isActive }) =>
+                  `flex items-center p-2 rounded ${
+                    isActive ? "bg-primary-500" : "hover:bg-primary-600"
+                  } transition-colors duration-200`
+                }
+              >
+                <Settings2 className="h-4 w-4 mr-2" />
+                System Settings
+              </NavLink>
+              <NavLink
+                to="/system/logs"
+                className={({ isActive }) =>
+                  `flex items-center p-2 rounded ${
+                    isActive ? "bg-primary-500" : "hover:bg-primary-600"
+                  } transition-colors duration-200`
+                }
+              >
+                <FileText className="h-4 w-4 mr-2" />
+                System Logs
+              </NavLink>
+            </div>
+          </div>
+          
           <div>
             <button
               onClick={toggleSettings}

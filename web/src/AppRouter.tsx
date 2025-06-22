@@ -16,6 +16,11 @@ import BlueprintUse from "./blueprints/BlueprintUse";
 import SandboxSimulator from "./sandbox/SandboxSimulator";
 import EnvironmentsPage from "./env/Environments";
 import Webhooks from "./Webhooks";
+import SystemOverview from "./system/SystemOverview";
+import HealthStatus from "./system/HealthStatus";
+import DatabaseMetrics from "./system/DatabaseMetrics";
+import SystemSettings from "./system/SystemSettings";
+import SystemLogs from "./system/SystemLogs";
 
 // Protected route component
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -56,6 +61,14 @@ const AppRouter = () => {
           <Route path="configs" element={<ConfigsPage />} />
           <Route path="configs/:configPath" element={<ConfigsPage />} />
           <Route path="environments" element={<EnvironmentsPage />} />
+
+          {/* System monitoring routes */}
+          <Route path="system" element={<SystemOverview />} />
+          <Route path="system/overview" element={<SystemOverview />} />
+          <Route path="system/health" element={<HealthStatus />} />
+          <Route path="system/database" element={<DatabaseMetrics />} />
+          <Route path="system/settings" element={<SystemSettings />} />
+          <Route path="system/logs" element={<SystemLogs />} />
 
           {/* Add placeholder routes for other sections */}
           <Route
