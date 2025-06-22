@@ -60,7 +60,7 @@ func (s *Server) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	// Find the user in the database
 	var user User
 	var storedHash string
-	err := s.db.QueryRow("SELECT id, email, password, created_at FROM users WHERE email = ?", req.Email).
+	err := s.db.DB.QueryRow("SELECT id, email, password, created_at FROM users WHERE email = ?", req.Email).
 		Scan(&user.ID, &user.Email, &storedHash, &user.CreatedAt)
 	if err != nil {
 		// Don't reveal too much information in the error

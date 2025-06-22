@@ -16,8 +16,10 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/zechtz/nyatictl/appconfig"
 	"github.com/zechtz/nyatictl/cli"
 	"github.com/zechtz/nyatictl/config"
+	"github.com/zechtz/nyatictl/db"
 	"github.com/zechtz/nyatictl/logger"
 	"github.com/zechtz/nyatictl/web"
 )
@@ -38,7 +40,7 @@ type Server struct {
 	logChannels map[string]chan string // Session ID -> log channel mapping for WebSocket streaming
 	logLock     sync.Mutex             // Mutex to protect logChannels map
 	upgrader    websocket.Upgrader     // WebSocket upgrader with origin check disabled
-	db          *sql.DB                // SQLite database connection
+	db          *db.MetricsDB          // SQLite database connection with metrics
 }
 
 // NewServer creates and initializes a new Server instance.
@@ -50,25 +52,65 @@ type Server struct {
 //   - *Server: a fully initialized web server instance
 //   - error: if database setup or config loading fails
 func NewServer() (*Server, error) {
+	// For backward compatibility, use default configuration
+	cfg := &appconfig.Config{
+		DatabasePath:      "./nyatictl.db",
+		DatabaseMaxConns:  25,
+		DatabaseIdleConns: 5,
+		DatabaseConnLife:  300 * time.Second,
+		DatabaseIdleTime:  60 * time.Second,
+	}
+	return NewServerWithConfig(cfg)
+}
+
+// NewServerWithConfig creates and initializes a new Server instance with the provided configuration.
+//
+// It sets up the SQLite database, creates the necessary tables, loads any saved configs,
+// and sets up the WebSocket upgrader.
+//
+// Parameters:
+//   - cfg: Application configuration containing database and other settings
+//
+// Returns:
+//   - *Server: a fully initialized web server instance
+//   - error: if database setup or config loading fails
+func NewServerWithConfig(cfg *appconfig.Config) (*Server, error) {
 	// Ensure all migrations are applied before initializing the server
 	if err := EnsureDatabaseMigrated(); err != nil {
 		return nil, fmt.Errorf("migration check failed: %v", err)
 	}
 
-	// Initialize SQLite database connection
-	db, err := sql.Open("sqlite3", "./nyatictl.db")
+	// Initialize SQLite database connection with optimizations
+	rawDB, err := sql.Open("sqlite3", cfg.GetDatabaseURL())
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %v", err)
 	}
+
+	// Configure connection pool using configuration values
+	rawDB.SetMaxOpenConns(cfg.DatabaseMaxConns)        // Limit concurrent connections
+	rawDB.SetMaxIdleConns(cfg.DatabaseIdleConns)       // Keep idle connections for reuse
+	rawDB.SetConnMaxLifetime(cfg.DatabaseConnLife)     // Recycle connections based on config
+	rawDB.SetConnMaxIdleTime(cfg.DatabaseIdleTime)     // Close idle connections based on config
+
+	// Test the connection
+	if err := rawDB.Ping(); err != nil {
+		if closeErr := rawDB.Close(); closeErr != nil {
+			log.Printf("Failed to close database after ping failure: %v", closeErr)
+		}
+		return nil, fmt.Errorf("failed to ping database: %v", err)
+	}
+
+	// Wrap with metrics tracking
+	metricsDB := db.NewMetricsDB(rawDB)
 
 	// Database schema is managed through migrations
 	// Tables are created via the migration system in EnsureDatabaseMigrated()
 
 	// Check if any users exist, if not, this is the initial setup
 	var userCount int
-	err = db.QueryRow("SELECT COUNT(*) FROM users").Scan(&userCount)
+	err = metricsDB.QueryRow("SELECT COUNT(*) FROM users").Scan(&userCount)
 	if err != nil {
-		if closeErr := db.Close(); closeErr != nil {
+		if closeErr := metricsDB.Close(); closeErr != nil {
 			log.Printf("Failed to close database after query error: %v", closeErr)
 		}
 		return nil, fmt.Errorf("failed to check user count: %v", err)
@@ -83,9 +125,9 @@ func NewServer() (*Server, error) {
 
 	// Load all configs from the database initially (for server startup)
 	// We don't specify a user_id here because we want all configs
-	configs, err := LoadConfigs(db)
+	configs, err := LoadConfigs(metricsDB.DB)
 	if err != nil {
-		if closeErr := db.Close(); closeErr != nil {
+		if closeErr := metricsDB.Close(); closeErr != nil {
 			log.Printf("Failed to close database after config load error: %v", closeErr)
 		}
 		return nil, fmt.Errorf("failed to load configs: %v", err)
@@ -99,7 +141,7 @@ func NewServer() (*Server, error) {
 				return true // Allow all origins for WebSocket connections
 			},
 		},
-		db: db,
+		db: metricsDB,
 	}, nil
 }
 
@@ -185,6 +227,12 @@ func (s *Server) Start(port string) error {
 	// Register the env routes to the protected API subrouter
 	s.InitEnvRoutes(api)
 
+	// Add metrics endpoint for administrators
+	api.HandleFunc("/metrics/database", s.handleDatabaseMetrics).Methods("GET")
+	
+	// Add health check endpoint (no auth required)
+	r.HandleFunc("/health", s.handleHealthCheck).Methods("GET")
+
 	// WebSocket endpoint for real-time logs
 	r.HandleFunc("/ws/logs/{sessionID}", s.handleLogsWebSocket)
 
@@ -231,7 +279,7 @@ func (s *Server) handleGetConfigs(w http.ResponseWriter, r *http.Request) {
 	defer s.configsLock.Unlock()
 
 	// Reload configs from the database to ensure freshness
-	configs, err := LoadConfigs(s.db, claims.UserID)
+	configs, err := LoadConfigs(s.db.DB, claims.UserID)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to load configs: %v", err), http.StatusInternalServerError)
 		return
@@ -290,7 +338,7 @@ func (s *Server) handleSaveConfigs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Save the config to the database
-	if err := SaveConfig(s.db, entry); err != nil {
+	if err := SaveConfig(s.db.DB, entry); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -356,7 +404,7 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 
 	// Check if the user owns this config
 	var userID int
-	err := s.db.QueryRow("SELECT user_id FROM configs WHERE path = ?", req.ConfigPath).Scan(&userID)
+	err := s.db.DB.QueryRow("SELECT user_id FROM configs WHERE path = ?", req.ConfigPath).Scan(&userID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			http.Error(w, "Config not found", http.StatusNotFound)
@@ -405,7 +453,7 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 				s.configs[i].Status = "DEPLOYED"
 
 				// Save the updated status to the database
-				if err := SaveConfig(s.db, s.configs[i]); err != nil {
+				if err := SaveConfig(s.db.DB, s.configs[i]); err != nil {
 					logger.Log(fmt.Sprintf("Failed to update config status: %v", err))
 				}
 				break
@@ -439,7 +487,7 @@ func (s *Server) handleExecuteTask(w http.ResponseWriter, r *http.Request) {
 
 	// Check if the user owns this config
 	var userID int
-	err := s.db.QueryRow("SELECT user_id FROM configs WHERE path = ?", req.ConfigPath).Scan(&userID)
+	err := s.db.DB.QueryRow("SELECT user_id FROM configs WHERE path = ?", req.ConfigPath).Scan(&userID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			http.Error(w, "Config not found", http.StatusNotFound)
@@ -485,7 +533,7 @@ func (s *Server) handleExecuteTask(w http.ResponseWriter, r *http.Request) {
 					"error": err.Error(),
 				},
 			}
-			TriggerWebhooks(s.db, "task", payload)
+			TriggerWebhooks(s.db.DB, "task", payload)
 			return
 		}
 		args := []string{"deploy", req.Host}
@@ -506,7 +554,7 @@ func (s *Server) handleExecuteTask(w http.ResponseWriter, r *http.Request) {
 					"error": err.Error(),
 				},
 			}
-			TriggerWebhooks(s.db, "task", payload)
+			TriggerWebhooks(s.db.DB, "task", payload)
 		} else {
 			// Trigger webhooks for task success
 			payload := WebhookPayload{
@@ -522,7 +570,7 @@ func (s *Server) handleExecuteTask(w http.ResponseWriter, r *http.Request) {
 					"config_name": getConfigName(s.configs, req.ConfigPath),
 				},
 			}
-			TriggerWebhooks(s.db, "task", payload)
+			TriggerWebhooks(s.db.DB, "task", payload)
 		}
 	}()
 
@@ -561,4 +609,91 @@ func (s *Server) handleLogsWebSocket(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+// handleDatabaseMetrics returns database performance metrics for administrators
+func (s *Server) handleDatabaseMetrics(w http.ResponseWriter, r *http.Request) {
+	// Get user ID from the JWT claims in context
+	claims, ok := GetUserFromContext(r)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Check if user is an admin (you might want to implement proper admin role checking)
+	// For now, we'll allow any authenticated user to view metrics
+	_ = claims
+
+	// Get current database metrics
+	metrics := s.db.GetMetrics()
+	
+	// Calculate average query duration in milliseconds
+	avgDuration := float64(0)
+	if metrics.QueryCount > 0 {
+		avgDuration = float64(metrics.TotalDuration) / float64(metrics.QueryCount) / 1e6 // Convert to milliseconds
+	}
+
+	// Create response with additional context
+	response := map[string]interface{}{
+		"database_metrics": map[string]interface{}{
+			"total_queries":           metrics.QueryCount,
+			"total_errors":            metrics.ErrorCount,
+			"average_duration_ms":     avgDuration,
+			"open_connections":        metrics.OpenConns,
+			"idle_connections":        metrics.IdleConns,
+			"error_rate_percent":      float64(0),
+		},
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+	}
+
+	// Calculate error rate percentage
+	if metrics.QueryCount > 0 {
+		errorRate := float64(metrics.ErrorCount) / float64(metrics.QueryCount) * 100
+		response["database_metrics"].(map[string]interface{})["error_rate_percent"] = errorRate
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleHealthCheck provides a basic health check endpoint
+func (s *Server) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
+	// Check database connectivity
+	dbStatus := "ok"
+	if err := s.db.Ping(); err != nil {
+		dbStatus = fmt.Sprintf("error: %v", err)
+	}
+
+	// Get basic database metrics
+	metrics := s.db.GetMetrics()
+	
+	// Calculate uptime (approximate based on when server started)
+	// For a more accurate uptime, you'd want to store start time as a field
+	startTime := time.Now().Add(-time.Hour) // Placeholder - replace with actual start time
+	uptime := time.Since(startTime)
+
+	response := map[string]interface{}{
+		"status": "ok",
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+		"uptime_seconds": int(uptime.Seconds()),
+		"database": map[string]interface{}{
+			"status": dbStatus,
+			"total_queries": metrics.QueryCount,
+			"total_errors": metrics.ErrorCount,
+			"open_connections": metrics.OpenConns,
+			"idle_connections": metrics.IdleConns,
+		},
+		"version": "0.1.2", // You might want to make this configurable
+	}
+
+	// Set appropriate status code based on health
+	if dbStatus != "ok" {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		response["status"] = "degraded"
+	} else {
+		w.WriteHeader(http.StatusOK)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }

@@ -55,7 +55,7 @@ func (s *Server) handleListEnvironments(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	environments, err := env.GetEnvironments(s.db, claims.UserID)
+	environments, err := env.GetEnvironments(s.db.DB, claims.UserID)
 	if err != nil {
 		rw.InternalServerError(fmt.Sprintf("Failed to load environments: %v", err))
 		return
@@ -96,7 +96,7 @@ func (s *Server) handleGetCurrentEnvironment(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	environment, err := env.GetCurrentEnvironment(s.db, claims.UserID)
+	environment, err := env.GetCurrentEnvironment(s.db.DB, claims.UserID)
 	if err != nil {
 		rw.InternalServerError(fmt.Sprintf("Failed to get current environment: %v", err))
 		return
@@ -141,7 +141,7 @@ func (s *Server) handleSwitchEnvironment(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Switch to the specified environment
-	environment, err := env.SetCurrentEnvironment(s.db, id, claims.UserID)
+	environment, err := env.SetCurrentEnvironment(s.db.DB, id, claims.UserID)
 	if err != nil {
 		rw.InternalServerError(fmt.Sprintf("Failed to switch environment: %v", err))
 		return
@@ -177,7 +177,7 @@ func (s *Server) handleCreateEnvironment(w http.ResponseWriter, r *http.Request)
 	newEnv.UserID = claims.UserID
 
 	// Save to database
-	if err := env.SaveEnvironment(s.db, newEnv); err != nil {
+	if err := env.SaveEnvironment(s.db.DB, newEnv); err != nil {
 		rw.InternalServerError(fmt.Sprintf("Failed to create environment: %v", err))
 		return
 	}
@@ -206,7 +206,7 @@ func (s *Server) handleDeleteEnvironment(w http.ResponseWriter, r *http.Request)
 	}
 
 	// First verify that this environment belongs to the user
-	environment, err := env.GetEnvironment(s.db, id)
+	environment, err := env.GetEnvironment(s.db.DB, id)
 	if err != nil {
 		rw.NotFound(fmt.Sprintf("Environment not found: %v", err))
 		return
@@ -224,13 +224,13 @@ func (s *Server) handleDeleteEnvironment(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Delete the environment - TODO: Add a DeleteEnvironment function to env package
-	_, err = s.db.Exec("DELETE FROM environment_variables WHERE environment_id = ?", id)
+	_, err = s.db.DB.Exec("DELETE FROM environment_variables WHERE environment_id = ?", id)
 	if err != nil {
 		rw.InternalServerError(fmt.Sprintf("Failed to delete environment variables: %v", err))
 		return
 	}
 
-	_, err = s.db.Exec("DELETE FROM environments WHERE id = ?", id)
+	_, err = s.db.DB.Exec("DELETE FROM environments WHERE id = ?", id)
 	if err != nil {
 		rw.InternalServerError(fmt.Sprintf("Failed to delete environment: %v", err))
 		return
@@ -260,7 +260,7 @@ func (s *Server) handleListVariables(w http.ResponseWriter, r *http.Request) {
 	showSecrets := r.URL.Query().Get("show_secrets") == "true"
 
 	// Get the environment
-	environment, err := env.GetEnvironment(s.db, id)
+	environment, err := env.GetEnvironment(s.db.DB, id)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Environment not found: %v", err), http.StatusNotFound)
 		return
@@ -356,7 +356,7 @@ func (s *Server) handleSetVariable(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get the environment
-	environment, err := env.GetEnvironment(s.db, id)
+	environment, err := env.GetEnvironment(s.db.DB, id)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Environment not found: %v", err), http.StatusNotFound)
 		return
@@ -386,7 +386,7 @@ func (s *Server) handleSetVariable(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Save changes
-	if err := env.SaveEnvironment(s.db, environment); err != nil {
+	if err := env.SaveEnvironment(s.db.DB, environment); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to save environment: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -418,7 +418,7 @@ func (s *Server) handleGetVariable(w http.ResponseWriter, r *http.Request) {
 	key := vars["key"]
 
 	// Get the environment
-	environment, err := env.GetEnvironment(s.db, id)
+	environment, err := env.GetEnvironment(s.db.DB, id)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Environment not found: %v", err), http.StatusNotFound)
 		return
@@ -486,7 +486,7 @@ func (s *Server) handleDeleteVariable(w http.ResponseWriter, r *http.Request) {
 	key := vars["key"]
 
 	// Get the environment
-	environment, err := env.GetEnvironment(s.db, id)
+	environment, err := env.GetEnvironment(s.db.DB, id)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Environment not found: %v", err), http.StatusNotFound)
 		return
@@ -502,7 +502,7 @@ func (s *Server) handleDeleteVariable(w http.ResponseWriter, r *http.Request) {
 	environment.Delete(key)
 
 	// Save changes
-	if err := env.SaveEnvironment(s.db, environment); err != nil {
+	if err := env.SaveEnvironment(s.db.DB, environment); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to save environment: %v", err), http.StatusInternalServerError)
 		return
 	}

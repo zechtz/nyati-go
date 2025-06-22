@@ -56,7 +56,7 @@ func (s *Server) handleSandboxSimulation(w http.ResponseWriter, r *http.Request)
 
 	// Check if the user owns this config
 	var userID int
-	err := s.db.QueryRow("SELECT user_id FROM configs WHERE path = ?", req.ConfigPath).Scan(&userID)
+	err := s.db.DB.QueryRow("SELECT user_id FROM configs WHERE path = ?", req.ConfigPath).Scan(&userID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			rw.NotFound("Config not found")

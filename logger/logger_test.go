@@ -124,8 +124,11 @@ func TestLog(t *testing.T) {
 	// Check if message appears in LogChan
 	select {
 	case msg := <-LogChan:
-		if msg != testMessage {
-			t.Errorf("LogChan message = %v, want %v", msg, testMessage)
+		if !strings.Contains(msg, testMessage) {
+			t.Errorf("LogChan message = %v, should contain %v", msg, testMessage)
+		}
+		if !strings.Contains(msg, "INFO") {
+			t.Errorf("LogChan message = %v, should contain log level INFO", msg)
 		}
 	case <-time.After(100 * time.Millisecond):
 		t.Error("Message should appear in LogChan")
@@ -290,4 +293,87 @@ func TestConcurrentLogging(t *testing.T) {
 	if nonEmptyLines == 0 {
 		t.Error("Log file should contain at least some messages")
 	}
+}
+
+func TestStructuredLogging(t *testing.T) {
+	// Set up clean test environment
+	if logFile != nil {
+		logFile.Close()
+		logFile = nil
+	}
+	LogChan = nil
+
+	tmpDir := t.TempDir()
+	testLogPath := filepath.Join(tmpDir, "test.log")
+	SetLogFilePath(testLogPath)
+
+	// Initialize
+	err := Init()
+	if err != nil {
+		t.Fatalf("Init() failed: %v", err)
+	}
+	defer Close()
+
+	// Test log levels
+	tests := []struct {
+		level LogLevel
+		name  string
+	}{
+		{DEBUG, "debug"},
+		{INFO, "info"},
+		{WARN, "warn"},
+		{ERROR, "error"},
+		{FATAL, "fatal"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Test string representation
+			if tt.level.String() != strings.ToUpper(tt.name) {
+				t.Errorf("LogLevel.String() = %v, want %v", tt.level.String(), strings.ToUpper(tt.name))
+			}
+		})
+	}
+
+	// Test convenience functions
+	Debug("debug message")
+	Info("info message")
+	Warn("warn message")
+	Error("error message")
+
+	// Test with fields
+	Info("message with fields", map[string]interface{}{
+		"user_id": 123,
+		"action":  "login",
+	})
+
+	// Test log level filtering
+	SetLogLevel(WARN)
+	Debug("this should be filtered")
+	Info("this should also be filtered")
+	Warn("this should appear")
+	Error("this should also appear")
+
+	// Test structured logging toggle
+	EnableStructuredLogging(true)
+	Info("structured message")
+	EnableStructuredLogging(false)
+	Info("plain message")
+
+	// Verify log level getters
+	if GetLogLevel() != WARN {
+		t.Errorf("GetLogLevel() = %v, want %v", GetLogLevel(), WARN)
+	}
+
+	EnableStructuredLogging(true)
+	if !IsStructuredLoggingEnabled() {
+		t.Error("IsStructuredLoggingEnabled() should return true")
+	}
+	EnableStructuredLogging(false)
+	if IsStructuredLoggingEnabled() {
+		t.Error("IsStructuredLoggingEnabled() should return false")
+	}
+
+	// Reset log level for other tests
+	SetLogLevel(INFO)
 }

@@ -99,7 +99,7 @@ func (s *Server) HandleRegister(w http.ResponseWriter, r *http.Request) {
 
 	// Check if the email is already in use
 	var exists bool
-	err := s.db.QueryRow("SELECT 1 FROM users WHERE email = ?", req.Email).Scan(&exists)
+	err := s.db.DB.QueryRow("SELECT 1 FROM users WHERE email = ?", req.Email).Scan(&exists)
 	if err != nil && err != sql.ErrNoRows {
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
@@ -117,7 +117,7 @@ func (s *Server) HandleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create user record
-	_, err = s.db.Exec(
+	_, err = s.db.DB.Exec(
 		"INSERT INTO users (email, password, created_at) VALUES (?, ?, ?)",
 		req.Email,
 		string(hashedPassword),

@@ -21,10 +21,13 @@ import (
 // It manages which hosts to connect to based on CLI args, initializes clients,
 // and provides lifecycle methods like Open() and Close().
 type Manager struct {
-	Clients []*Client      // List of connected SSH clients
-	Config  *config.Config // Global config, loaded from nyati.yaml
-	args    []string       // CLI args to determine host targeting
-	debug   bool           // Whether debug mode is enabled
+	Clients        []*Client        // List of connected SSH clients
+	Config         *config.Config   // Global config, loaded from nyati.yaml
+	args           []string         // CLI args to determine host targeting
+	debug          bool             // Whether debug mode is enabled
+	pool           *ConnectionPool  // Optional connection pool for reuse
+	usePooling     bool             // Whether to use connection pooling
+	pooledConns    []*PooledConnection // Active pooled connections
 }
 
 // Client represents a single SSH session to a remote host.
@@ -103,7 +106,52 @@ func fileExists(filename string) bool {
 //   - *Manager: initialized SSH manager
 //   - error: if configuration is invalid (currently always nil)
 func NewManager(cfg *config.Config, args []string, debug bool) (*Manager, error) {
-	return &Manager{Config: cfg, args: args, debug: debug}, nil
+	return &Manager{
+		Config: cfg, 
+		args: args, 
+		debug: debug,
+		usePooling: false, // Default to no pooling for backward compatibility
+	}, nil
+}
+
+// EnableConnectionPooling enables SSH connection pooling with the specified configuration
+func (m *Manager) EnableConnectionPooling(poolConfig *ConnectionPoolConfig) {
+	if poolConfig == nil {
+		poolConfig = defaultPoolConfig()
+	}
+	m.pool = NewConnectionPool(poolConfig)
+	m.usePooling = true
+	
+	logger.Info("SSH connection pooling enabled", map[string]interface{}{
+		"max_idle":     poolConfig.MaxIdle,
+		"max_lifetime": poolConfig.MaxLifetime.String(),
+		"idle_timeout": poolConfig.IdleTimeout.String(),
+	})
+}
+
+// DisableConnectionPooling disables SSH connection pooling
+func (m *Manager) DisableConnectionPooling() {
+	if m.pool != nil {
+		m.pool.Close()
+		m.pool = nil
+	}
+	m.usePooling = false
+	m.pooledConns = nil
+	
+	logger.Info("SSH connection pooling disabled")
+}
+
+// GetPoolStats returns statistics about the connection pool
+func (m *Manager) GetPoolStats() map[string]interface{} {
+	if m.pool == nil {
+		return map[string]interface{}{
+			"pooling_enabled": false,
+		}
+	}
+	
+	stats := m.pool.Stats()
+	stats["pooling_enabled"] = true
+	return stats
 }
 
 // Open connects to the selected hosts defined in CLI args.
@@ -160,8 +208,22 @@ func (m *Manager) Open() error {
 
 // Close disconnects all open SSH sessions managed by the Manager.
 func (m *Manager) Close() {
+	// Close traditional clients
 	for _, client := range m.Clients {
 		client.Disconnect()
+	}
+	
+	// Release pooled connections
+	for _, conn := range m.pooledConns {
+		if m.pool != nil {
+			m.pool.ReleaseConnection(conn)
+		}
+	}
+	m.pooledConns = nil
+	
+	// Close the connection pool if we own it
+	if m.pool != nil {
+		m.pool.Close()
 	}
 }
 

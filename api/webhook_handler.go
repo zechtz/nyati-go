@@ -37,7 +37,7 @@ func (s *Server) HandleCreateWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create the webhook
-	id, err := CreateWebhook(s.db, webhook)
+	id, err := CreateWebhook(s.db.DB, webhook)
 	if err != nil {
 		logger.Log(fmt.Sprintf("Failed to create webhook: %v", err))
 		http.Error(w, "Failed to create webhook", http.StatusInternalServerError)
@@ -67,7 +67,7 @@ func (s *Server) HandleGetWebhooks(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get webhooks for the user
-	webhooks, err := GetWebhooks(s.db, claims.UserID)
+	webhooks, err := GetWebhooks(s.db.DB, claims.UserID)
 	if err != nil {
 		logger.Log(fmt.Sprintf("Failed to get webhooks: %v", err))
 		http.Error(w, "Failed to get webhooks", http.StatusInternalServerError)
@@ -97,7 +97,7 @@ func (s *Server) HandleGetWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get the webhook
-	webhook, err := GetWebhook(s.db, id, claims.UserID)
+	webhook, err := GetWebhook(s.db.DB, id, claims.UserID)
 	if err != nil {
 		http.Error(w, "Webhook not found", http.StatusNotFound)
 		return
@@ -136,7 +136,7 @@ func (s *Server) HandleUpdateWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify the webhook exists and belongs to the user
-	existingWebhook, err := GetWebhook(s.db, id, claims.UserID)
+	existingWebhook, err := GetWebhook(s.db.DB, id, claims.UserID)
 	if err != nil {
 		http.Error(w, "Webhook not found", http.StatusNotFound)
 		return
@@ -158,7 +158,7 @@ func (s *Server) HandleUpdateWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update the webhook
-	err = UpdateWebhook(s.db, webhookUpdate)
+	err = UpdateWebhook(s.db.DB, webhookUpdate)
 	if err != nil {
 		logger.Log(fmt.Sprintf("Failed to update webhook: %v", err))
 		http.Error(w, "Failed to update webhook", http.StatusInternalServerError)
@@ -192,7 +192,7 @@ func (s *Server) HandleDeleteWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Delete the webhook
-	err = DeleteWebhook(s.db, id, claims.UserID)
+	err = DeleteWebhook(s.db.DB, id, claims.UserID)
 	if err != nil {
 		logger.Log(fmt.Sprintf("Failed to delete webhook: %v", err))
 		http.Error(w, "Failed to delete webhook", http.StatusInternalServerError)
@@ -208,7 +208,7 @@ func (s *Server) HandleIncomingWebhook(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	webhookID := vars["webhookID"]
 
-	ProcessIncomingWebhook(s.db, w, r, webhookID)
+	ProcessIncomingWebhook(s.db.DB, w, r, webhookID)
 }
 
 // getConfigName retrieves the name of a config from its path

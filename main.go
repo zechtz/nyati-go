@@ -6,8 +6,10 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/zechtz/nyatictl/api"
+	"github.com/zechtz/nyatictl/appconfig"
 	"github.com/zechtz/nyatictl/cli"
 	"github.com/zechtz/nyatictl/logger"
 )
@@ -22,67 +24,96 @@ const version = "0.1.2"
 //   - CLI Mode (default): Runs deployment tasks and commands from the terminal
 //   - Web Mode (--web): Starts a web server with a UI for managing and executing tasks
 //
-// Flags:
+// Configuration is loaded from environment variables with command-line flag overrides.
+// See appconfig package for all available configuration options.
+//
+// Flags (override environment variables):
 //
 //	--web           : Run in web mode, which starts the HTTP server
-//	--port          : Port for the web server (used only in web mode, default is 8080)
-//	--configs-path  : Path to the configuration JSON file (default is "configs.json")
-//	--log-path      : Path to the persistent log output file (default is "nyatictl.log")
+//	--port          : Port for the web server (used only in web mode)
+//	--configs-path  : Path to the configuration JSON file
+//	--log-path      : Path to the persistent log output file
 //
 // Example Usage:
 //
 //	CLI Mode:
 //	  go run main.go
 //
-//	Web Mode:
+//	Web Mode with environment:
+//	  NYATI_WEB_MODE=true NYATI_PORT=3000 go run main.go
+//
+//	Web Mode with flags:
 //	  go run main.go --web --port 3000 --configs-path ./data/configs.json --log-path ./logs/output.log
 func main() {
 	// -----------------------------
-	// Flag Definitions
+	// Load Configuration
 	// -----------------------------
 
-	// Indicates whether to run in web UI mode
-	webMode := flag.Bool("web", false, "Run in web mode (starts a web server)")
+	// Load configuration from environment variables first
+	cfg, err := appconfig.Load()
+	if err != nil {
+		log.Printf("Failed to load configuration: %v", err)
+		return
+	}
 
-	// Defines the HTTP port the web server should listen on
-	port := flag.String("port", "8080", "Port for the web server (used in web mode)")
+	// -----------------------------
+	// Flag Definitions (override config)
+	// -----------------------------
 
-	// Path to the configuration file that stores available deployment entries
-	configsPath := flag.String("configs-path", "configs.json", "Path to the configs.json file")
-
-	// Path where persistent logs will be stored
-	logPath := flag.String("log-path", "nyatictl.log", "Path to the persistent log file")
+	// Command-line flags can override environment variables
+	webMode := flag.Bool("web", cfg.WebMode, "Run in web mode (starts a web server)")
+	port := flag.String("port", cfg.Port, "Port for the web server (used in web mode)")
+	configsPath := flag.String("configs-path", cfg.ConfigsPath, "Path to the configs.json file")
+	logPath := flag.String("log-path", cfg.LogPath, "Path to the persistent log file")
 
 	// Parse all defined flags
 	flag.Parse()
+
+	// Override config with command-line flags
+	cfg.WebMode = *webMode
+	cfg.Port = *port
+	cfg.ConfigsPath = *configsPath
+	cfg.LogPath = *logPath
+
+	// Validate final configuration
+	if err := cfg.Validate(); err != nil {
+		log.Printf("Configuration validation failed: %v", err)
+		return
+	}
 
 	// -----------------------------
 	// Logger Setup
 	// -----------------------------
 
-	// Set the file path where logs will be persisted BEFORE initializing the logger
-	logger.SetLogFilePath(*logPath)
+	// Configure logger based on configuration
+	logger.SetLogFilePath(cfg.LogPath)
+	logger.SetLogLevel(cfg.GetLogLevel())
+	logger.EnableStructuredLogging(cfg.StructuredLogging)
 
-	// Initialize the logging system — this sets up:
-	//   1. LogChan for streaming logs to WebSocket clients
-	//   2. Persistent file logging to the configured path
+	// Initialize the logging system
 	if err := logger.Init(); err != nil {
 		log.Printf("Failed to initialize logger: %v", err)
 		return
 	}
+
+	// Log the loaded configuration
+	cfg.LogConfiguration()
 
 	// -----------------------------
 	// Config File Initialization
 	// -----------------------------
 
 	// Set the config path for the web layer (used globally in web package)
-	api.ConfigFilePath = *configsPath
+	api.ConfigFilePath = cfg.ConfigsPath
 
 	// Ensure that the config file exists at the specified path.
 	// If it does not exist, it will be created with an empty JSON array ([]).
 	// This prevents "file not found" errors during web UI interactions.
 	if err := api.EnsureConfigsFile(); err != nil {
-		log.Printf("Failed to create config file at '%s': %v", *configsPath, err)
+		logger.Error("Failed to create config file", map[string]interface{}{
+			"path": cfg.ConfigsPath,
+			"error": err.Error(),
+		})
 		return
 	}
 
@@ -90,11 +121,13 @@ func main() {
 	// Run in Web or CLI Mode
 	// -----------------------------
 
-	if *webMode {
+	if cfg.WebMode {
 		// WEB MODE: Start the backend HTTP server for the web UI
-		server, err := api.NewServer()
+		server, err := api.NewServerWithConfig(cfg)
 		if err != nil {
-			log.Printf("Failed to initialize web server: %v", err)
+			logger.Error("Failed to initialize web server", map[string]interface{}{
+				"error": err.Error(),
+			})
 			return
 		}
 
@@ -104,20 +137,42 @@ func main() {
 
 		// Start server in a goroutine
 		go func() {
-			log.Printf("Starting web server on port %s", *port)
-			if err := server.Start(*port); err != nil {
-				log.Printf("Web server error: %v", err)
+			logger.Info("Starting web server", map[string]interface{}{
+				"port": cfg.Port,
+				"mode": "web",
+			})
+			if err := server.Start(cfg.Port); err != nil {
+				logger.Error("Web server error", map[string]interface{}{
+					"error": err.Error(),
+				})
 				signalChan <- syscall.SIGTERM
 			}
 		}()
 
 		// Wait for shutdown signal
 		<-signalChan
-		log.Println("Shutdown signal received, cleaning up...")
+		logger.Info("Shutdown signal received, cleaning up...")
 
-		// Close server resources
-		if err := server.Close(); err != nil {
-			log.Printf("Error closing server: %v", err)
+		// Graceful shutdown with timeout
+		shutdownDone := make(chan bool, 1)
+		go func() {
+			// Close server resources
+			if err := server.Close(); err != nil {
+				logger.Error("Error closing server", map[string]interface{}{
+					"error": err.Error(),
+				})
+			} else {
+				logger.Info("Server closed successfully")
+			}
+			shutdownDone <- true
+		}()
+
+		// Wait for graceful shutdown or timeout
+		select {
+		case <-shutdownDone:
+			logger.Info("Graceful shutdown completed")
+		case <-time.After(cfg.ShutdownTimeout):
+			logger.Warn("Shutdown timeout reached, forcing exit")
 		}
 
 		// Close logger resources
@@ -125,11 +180,16 @@ func main() {
 			log.Printf("Error closing logger: %v", err)
 		}
 
-		log.Println("Shutdown complete")
+		logger.Info("Shutdown complete")
 	} else {
 		// CLI MODE: Execute automation tasks via the command line
+		logger.Info("Starting CLI mode", map[string]interface{}{
+			"version": version,
+		})
 		if err := cli.Execute(version); err != nil {
-			log.Printf("CLI execution failed: %v", err)
+			logger.Error("CLI execution failed", map[string]interface{}{
+				"error": err.Error(),
+			})
 			return
 		}
 

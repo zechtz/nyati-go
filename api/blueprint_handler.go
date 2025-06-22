@@ -20,7 +20,7 @@ func (s *Server) handleGetBlueprints(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get blueprints from the database
-	blueprints, err := GetBlueprints(s.db, claims.UserID)
+	blueprints, err := GetBlueprints(s.db.DB, claims.UserID)
 	if err != nil {
 		rw.InternalServerError(err.Error())
 		return
@@ -46,7 +46,7 @@ func (s *Server) handleGetBlueprintByID(w http.ResponseWriter, r *http.Request) 
 	blueprintID := vars["id"]
 
 	// Get blueprint from the database
-	blueprint, err := GetBlueprintByID(s.db, blueprintID, claims.UserID)
+	blueprint, err := GetBlueprintByID(s.db.DB, blueprintID, claims.UserID)
 	if err != nil {
 		rw.NotFound(err.Error())
 		return
@@ -79,7 +79,7 @@ func (s *Server) handleSaveBlueprint(w http.ResponseWriter, r *http.Request) {
 		blueprint.CreatedBy = claims.UserID
 	} else {
 		// Check if user is the creator of an existing blueprint
-		existingBlueprint, err := GetBlueprintByID(s.db, blueprint.ID, claims.UserID)
+		existingBlueprint, err := GetBlueprintByID(s.db.DB, blueprint.ID, claims.UserID)
 		if err != nil {
 			rw.NotFound("Blueprint not found or not accessible")
 			return
@@ -94,7 +94,7 @@ func (s *Server) handleSaveBlueprint(w http.ResponseWriter, r *http.Request) {
 	// log.Printf("Unmarshaled Blueprint: %+v\n", blueprint)
 
 	// Save blueprint to the database
-	if err := SaveBlueprint(s.db, blueprint); err != nil {
+	if err := SaveBlueprint(s.db.DB, blueprint); err != nil {
 		rw.InternalServerError(err.Error())
 		return
 	}
@@ -129,7 +129,7 @@ func (s *Server) handleDeleteBlueprint(w http.ResponseWriter, r *http.Request) {
 	blueprintID := vars["id"]
 
 	// Delete blueprint from the database
-	if err := DeleteBlueprint(s.db, blueprintID, claims.UserID); err != nil {
+	if err := DeleteBlueprint(s.db.DB, blueprintID, claims.UserID); err != nil {
 		rw.InternalServerError(err.Error())
 		return
 	}
@@ -160,7 +160,7 @@ func (s *Server) handleGenerateConfigFromBlueprint(w http.ResponseWriter, r *htt
 	}
 
 	// Get blueprint from the database
-	blueprint, err := GetBlueprintByID(s.db, req.BlueprintID, claims.UserID)
+	blueprint, err := GetBlueprintByID(s.db.DB, req.BlueprintID, claims.UserID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		rw.NotFound(err.Error())
